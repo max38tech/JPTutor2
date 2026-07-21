@@ -19,6 +19,9 @@ Welcome to **Nihongo Voice Tutor (JP-Tutor)**! This document serves as your comp
 Nihongo Voice Tutor connects directly to Google AI Studio's Gemini Multimodal Live Audio API to provide high-speed, interactive Japanese voice lessons.
 
 ### Step-by-Step Setup
+
+![Application Dashboard](screenshots/dashboard.png)
+
 1. **Get a Gemini API Key**: Visit [Google AI Studio](https://aistudio.google.com/) and create a free API key (starts with `AIzaSy...`).
 2. **Open Settings**: Tap the ⚙️ icon in the top header.
 3. **Save API Key**: Paste your key into the **Gemini API Key** input box.
