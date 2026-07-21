@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">JP Tutor</string>
+    <string name="title_activity_main">JP Tutor</string>
+    <string name="package_name">com.example.voicetutor</string>
+    <string name="custom_url_scheme">com.example.voicetutor</string>
+</resources>

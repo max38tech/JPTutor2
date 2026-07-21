@@ -1,0 +1,1 @@
+{"name":"Japanese Language Tutor","description":"An interactive topic-based Japanese language tutor with voice voice-to-text, dialogue history, flashcards, and cross-device sync.","requestFramePermissions":["microphone"],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
