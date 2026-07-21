@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nihongo Voice Tutor - Complete User Manual & Operating Guide</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-dark: #4338ca;
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+      --accent: #10b981;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 0;
+      margin: 0;
+    }
+
+    header {
+      background: linear-gradient(135deg, #312e81 0%, #1e1b4b 100%);
+      padding: 3rem 2rem;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+      color: #fff;
+    }
+
+    header p {
+      font-size: 1.1rem;
+      color: #c7d2fe;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    nav.toc {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+
+    nav.toc h2 {
+      font-size: 1.2rem;
+      margin-bottom: 1rem;
+      color: var(--accent);
+    }
+
+    nav.toc ul {
+      list-style: none;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 0.5rem 1rem;
+    }
+
+    nav.toc a {
+      color: #818cf8;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    nav.toc a:hover {
+      text-decoration: underline;
+    }
+
+    section {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+
+    section h2 {
+      font-size: 1.8rem;
+      color: #a5b4fc;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    section h3 {
+      font-size: 1.3rem;
+      color: #6ee7b7;
+      margin: 1.5rem 0 0.75rem 0;
+    }
+
+    p, li {
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+      font-size: 1rem;
+    }
+
+    strong { color: var(--text); }
+
+    ul, ol {
+      margin-left: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .img-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+      margin: 1.5rem 0;
+    }
+
+    .img-card {
+      background-color: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .img-card img {
+      max-width: 100%;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      margin-bottom: 0.5rem;
+    }
+
+    .img-card p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    .badge {
+      display: inline-block;
+      background-color: rgba(79, 70, 229, 0.2);
+      color: #818cf8;
+      border: 1px solid #6366f1;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .alert {
+      background-color: rgba(16, 185, 129, 0.1);
+      border-left: 4px solid var(--accent);
+      padding: 1rem;
+      border-radius: 0 8px 8px 0;
+      margin: 1rem 0;
+    }
+
+    .alert p { color: #d1fae5; margin: 0; }
+
+    footer {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      border-top: 1px solid var(--border);
+    }
+
+    @media print {
+      body { background: #fff; color: #000; }
+      section, nav.toc { background: #fff; border: 1px solid #ccc; color: #000; }
+      p, li, strong { color: #000; }
+      header { background: #f0f0f0; color: #000; }
+      header h1, header p { color: #000; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🌸 Nihongo Voice Tutor</h1>
+    <p>User Operating Manual & Interactive Feature Guide</p>
+  </header>
+
+  <div class="container">
+
+    <nav class="toc">
+      <h2>📌 Table of Contents</h2>
+      <ul>
+        <li><a href="#getting-started">1. Getting Started & Setup</a></li>
+        <li><a href="#voice-lessons">2. Live 1-on-1 Voice Lessons</a></li>
+        <li><a href="#topics">3. Topics & Custom Scenarios</a></li>
+        <li><a href="#flashcards">4. SRS Flashcards & Word Capture</a></li>
+        <li><a href="#sync">5. Syncing Across Devices</a></li>
+        <li><a href="#settings">6. Settings & Diagnostics</a></li>
+      </ul>
+    </nav>
+
+    <!-- SECTION 1 -->
+    <section id="getting-started">
+      <h2>1. 🚀 Getting Started & Setup</h2>
+      <p>Nihongo Voice Tutor connects directly to Google AI Studio's Gemini Multimodal Live Audio API to provide high-speed, interactive Japanese voice lessons.</p>
+
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>A valid <strong>Google Gemini API Key</strong> (Get one for free at <a href="https://aistudio.google.com/" target="_blank" style="color: #818cf8;">aistudio.google.com</a>).</li>
+        <li>Microphone permission granted on your Android device, iOS device, or desktop web browser.</li>
+      </ul>
+
+      <h3>First Time Launch</h3>
+      <ol>
+        <li>Open the application on your mobile device or web browser.</li>
+        <li>Tap the <strong>Settings</strong> icon (⚙️) in the top navigation bar.</li>
+        <li>Paste your <strong>Gemini API Key</strong> (starts with <code>AIzaSy...</code>) into the API key field.</li>
+        <li>Select your preferred Tutor Voice (e.g. <em>Aoede</em> or <em>Puck</em>).</li>
+        <li>Tap <strong>Save Settings</strong>.</li>
+      </ol>
+    </section>
+
+    <!-- SECTION 2 -->
+    <section id="voice-lessons">
+      <h2>2. 🎙️ Live 1-on-1 Voice Lessons</h2>
+      <p>The core feature of the app is spoken conversation with your AI tutor, who behaves like an encouraging native Japanese teacher.</p>
+
+      <div class="img-grid">
+        <div class="img-card">
+          <img src="screenshots/voice_tutor_session.png" alt="Live Tutor Interface" />
+          <p>Live Spoken Lesson Interface</p>
+        </div>
+      </div>
+
+      <h3>How to Conduct a Lesson</h3>
+      <ol>
+        <li>Select a topic from the <strong>Topics</strong> screen or tap <strong>Start Voice Session</strong> on the dashboard.</li>
+        <li>Tap the large blue <strong>Microphone Button</strong> to start the session.</li>
+        <li>Speak naturally in English or Japanese! For example: <em>"How do I ask where the train station is in Japanese?"</em></li>
+        <li>The tutor will speak back out loud in Japanese, teach you the phrase, and prompt you to repeat it.</li>
+      </ol>
+
+      <div class="alert">
+        <p>💡 <strong>Pedagogy Rule:</strong> The tutor will pause after presenting a phrase so you can practice repeating it out loud before moving on.</p>
+      </div>
+    </section>
+
+    <!-- SECTION 3 -->
+    <section id="topics">
+      <h2>3. 🗂️ Topics & Custom Scenarios</h2>
+      <p>Practice real-world Japanese conversations across structured scenarios or invent your own custom prompts.</p>
+
+      <div class="img-grid">
+        <div class="img-card">
+          <img src="screenshots/topics_list.png" alt="Topics List Interface" />
+          <p>Preset & Custom Scenario Selection</p>
+        </div>
+      </div>
+
+      <h3>Presets Available</h3>
+      <ul>
+        <li><strong>Gas Station:</strong> Fill up your car ("Regular, full tank please!").</li>
+        <li><strong>Ordering Coffee:</strong> Customizing milk and sizes at a cafe.</li>
+        <li><strong>Ryokan Check-in:</strong> Hotel reservations and dinner times.</li>
+        <li><strong>Asking Directions:</strong> Navigating Shibuya station.</li>
+      </ul>
+    </section>
+
+    <!-- SECTION 4 -->
+    <section id="flashcards">
+      <h2>4. 🎴 SRS Flashcards & Word Capture</h2>
+      <p>Never forget vocabulary from your lessons! Every turn spoken by the tutor is automatically transcribed into clean Japanese, Romaji, and English.</p>
+
+      <div class="img-grid">
+        <div class="img-card">
+          <img src="screenshots/flashcards_practice.jpg" alt="Flashcards Practice" />
+          <p>Flashcards Deck Practice</p>
+        </div>
+        <div class="img-card">
+          <img src="screenshots/flashcards_card.jpg" alt="Flashcard Character View" />
+          <p>Interactive Card Side & Pronunciation</p>
+        </div>
+      </div>
+
+      <h3>Saving Words & Cards</h3>
+      <ul>
+        <li><strong>Segmented Word Capture:</strong> Tap any underlined Japanese word in the transcript to instantly create a flashcard for that specific word.</li>
+        <li><strong>Full Sentence Capture:</strong> Tap the Bookmark icon (🔖) next to any tutor response to save the phrase to your deck.</li>
+        <li><strong>24kHz HD Audio Playback:</strong> Tap the <strong>Listen</strong> button on any flashcard to hear high-definition native pronunciation powered by <strong>Microsoft Edge Neural Speech (<code>ja-JP-NanamiNeural</code>)</strong>.</li>
+      </ul>
+    </section>
+
+    <!-- SECTION 5 -->
+    <section id="sync">
+      <h2>5. 🔄 Syncing Across Devices</h2>
+      <p>Keep your flashcards and lesson history in sync between your Android phone, iPad, and laptop.</p>
+
+      <h3>How to Sync Data</h3>
+      <ol>
+        <li>Go to <strong>Settings</strong> ➔ <strong>Data Synchronization</strong>.</li>
+        <li>Tap <strong>Get Sync PIN</strong> to generate your unique 6-digit backup PIN.</li>
+        <li>Tap <strong>Sync Up</strong> to backup your flashcards to the encrypted Cloud Run server.</li>
+        <li>On your second device, enter your 6-digit PIN in Settings and tap <strong>Sync Down</strong> to restore your study data.</li>
+      </ol>
+    </section>
+
+    <!-- SECTION 6 -->
+    <section id="settings">
+      <h2>6. 🛠️ Settings & Diagnostics</h2>
+      <p>If you ever encounter an issue or want to view diagnostic information:</p>
+
+      <div class="img-grid">
+        <div class="img-card">
+          <img src="screenshots/diagnostics_logs.png" alt="Diagnostic Logs Modal" />
+          <p>Client & Server Diagnostic Viewer</p>
+        </div>
+      </div>
+
+      <ul>
+        <li>Tap the <strong>Terminal Icon</strong> (💻) in the navigation header to view live client and server logs.</li>
+        <li>Tap <strong>Email Dev</strong> to automatically compile and send diagnostic logs to support.</li>
+      </ul>
+    </section>
+
+  </div>
+
+  <footer>
+    <p>&copy; 2026 Nihongo Voice Tutor (JP-Tutor) | Built with Gemini Multimodal Live Audio & Microsoft Edge Neural TTS</p>
+  </footer>
+
+</body>
+</html>
