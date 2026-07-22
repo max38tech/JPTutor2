@@ -22,6 +22,12 @@ import {
   Settings as SettingsIcon 
 } from 'lucide-react';
 
+import { 
+  extractCleanJapanese, 
+  extractCleanRomaji, 
+  extractCleanEnglish 
+} from './components/VoiceTutor';
+
 const LOCAL_STORAGE_SESSIONS_KEY = 'nihongo_tutor_sessions';
 const LOCAL_STORAGE_FLASHCARDS_KEY = 'nihongo_tutor_flashcards';
 const LOCAL_STORAGE_PROGRESS_KEY = 'nihongo_tutor_progress';
@@ -73,7 +79,22 @@ export default function App() {
       if (storedSessions) setSessions(JSON.parse(storedSessions));
 
       const storedFlashcards = localStorage.getItem(LOCAL_STORAGE_FLASHCARDS_KEY);
-      if (storedFlashcards) setFlashcards(JSON.parse(storedFlashcards));
+      if (storedFlashcards) {
+        const parsed: Flashcard[] = JSON.parse(storedFlashcards);
+        const repaired = parsed.map(card => {
+          const cleanJap = extractCleanJapanese(card.japanese);
+          const cleanRom = extractCleanRomaji(card.romaji, card.japanese, cleanJap);
+          const cleanEng = extractCleanEnglish(card.english, card.english);
+          return {
+            ...card,
+            japanese: cleanJap || card.japanese,
+            romaji: cleanRom || card.romaji,
+            english: cleanEng || card.english
+          };
+        });
+        setFlashcards(repaired);
+        localStorage.setItem(LOCAL_STORAGE_FLASHCARDS_KEY, JSON.stringify(repaired));
+      }
 
       const storedProgress = localStorage.getItem(LOCAL_STORAGE_PROGRESS_KEY);
       if (storedProgress) setProgress(JSON.parse(storedProgress));

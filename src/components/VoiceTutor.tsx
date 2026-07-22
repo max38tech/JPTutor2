@@ -31,6 +31,7 @@ import { motion } from 'motion/react';
 import { speakJapanese } from '../utils/speak';
 import { getWebSocketBaseUrl, isServerConfigured } from '../utils/api';
 import { logger } from '../utils/logger';
+import { kanaToRomaji } from '../utils/romaji';
 
 const SUGGESTED_TOPICS = [
   { id: 'restaurant', emoji: '🍣', label: 'Ordering Food', detail: 'Practice ordering sushi & drinks' },
@@ -61,44 +62,85 @@ interface VoiceTutorProps {
 
 export const extractCleanJapanese = (text: string): string => {
   if (!text) return "";
-  const japMatch = text.match(/JAPANESE:\s*(.*?)(?=ROMAJI:|ENGLISH:|$)/is);
+  const cleanFormatted = text.replace(/<\/?b>/gi, '').replace(/\*\*/g, '').replace(/\*/g, '').trim();
+  
+  const japMatch = cleanFormatted.match(/JAPANESE:\s*(.*?)(?=ROMAJI:|ENGLISH:|$)/is);
   if (japMatch && japMatch[1].trim()) {
-    return japMatch[1].replace(/<\/?b>/gi, '').replace(/\*\*/g, '').trim();
+    return japMatch[1].trim();
   }
 
-  const cjkMatch = text.match(/(?:[A-Za-z0-9\s-]*[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff][\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303fー・～！？\s0-9]*)/g);
+  // Extract pure CJK / Hiragana / Katakana sequence without capturing Latin characters
+  const cjkMatch = cleanFormatted.match(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303fー・～！？、。]+/g);
   if (cjkMatch && cjkMatch.length > 0) {
-    let clean = cjkMatch[0].trim();
-    clean = clean.replace(/\s+[A-Za-z0-9\s.,?!'\-]+$/, '').trim();
-    if (clean) return clean;
+    const longest = cjkMatch.reduce((a, b) => a.length >= b.length ? a : b);
+    return longest.trim();
   }
 
-  return text.replace(/<\/?b>/gi, '').replace(/\*\*/g, '').trim();
+  return cleanFormatted;
 };
 
-export const extractCleanRomaji = (romajiText: string, fullText: string): string => {
+export const extractCleanRomaji = (romajiText: string, fullText: string, japaneseText?: string): string => {
   const target = romajiText || fullText;
-  if (!target) return "";
+  if (!target && !japaneseText) return "";
+
+  // 1. Explicit ROMAJI: field
   const romMatch = target.match(/ROMAJI:\s*(.*?)(?=JAPANESE:|ENGLISH:|$)/is);
   if (romMatch && romMatch[1].trim()) {
     return romMatch[1].replace(/<\/?b>/gi, '').replace(/\*\*/g, '').trim();
   }
 
-  // Remove CJK characters
-  let clean = target.replace(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303fー・～！？]/g, '').trim();
+  // 2. Positional extraction immediately following Japanese phrase
+  const jap = japaneseText || extractCleanJapanese(fullText);
+  if (jap && fullText.includes(jap)) {
+    const afterJap = fullText.slice(fullText.indexOf(jap) + jap.length).trim();
+    const romCandidateMatch = afterJap.match(/^[?\s!.,]*([A-Za-z0-9\s.,?!'\-]+?)(?=\.|\?|!|\b(?:That means|Which means|Meaning|How|You|Would|Are|Let|Ready|Are you|Would you)\b|$)/i);
+    if (romCandidateMatch && romCandidateMatch[1]) {
+      let candidate = romCandidateMatch[1]
+        .replace(/<\/?b>/gi, '')
+        .replace(/\*\*/g, '')
+        .trim();
+      
+      // Filter out leading conversational English words
+      candidate = candidate.replace(/^(?:That was great|Exactly right|Perfect|Great job|You can say|That means|Which means|Meaning|How about|Would you|Are you|Let's|Now try|Try saying)[!.,?\s]*/i, '').trim();
+      
+      const firstWord = candidate.split(/\s+/)[0].toLowerCase();
+      if (candidate.length >= 2 && !['that', 'you', 'ready', 'how', 'what', 'would', 'can', 'let', 'do', 'are', 'is', 'the', 'a', 'an', 'exactly', 'perfect'].includes(firstWord)) {
+        return candidate;
+      }
+    }
+  }
 
-  // Strip conversational English sentences (anything starting after a period/punctuation or starting with common English question/intro words)
+  // 3. Global CJK stripping fallback
+  let clean = target
+    .replace(/<\/?b>/gi, '')
+    .replace(/\*\*/g, '')
+    .replace(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303fー・～！？、。]/g, '')
+    .trim();
+
   clean = clean
+    .replace(/^(?:That was great|Exactly right|Perfect|Great job|You can say|That means|Which means|Meaning|How about|Would you|Are you|Let's|Now try|Try saying)[!.,?\s]*/i, '')
     .replace(/(?:\.|\?|!)\s*(?:Want|Would|Ready|How|Can|Try|That|You|Let|Now|Which|What|Do|Are|Does|Is|So|Great|Good|Exactly|Perfect|Shall).*$/is, '')
     .replace(/(?:\b(?:Want|Would|Ready|How|Can|Try|That means|You're|Now you|Could I|Do you|Ready to|How about|Let's|Want to|Would you)\b).*$/is, '')
     .trim();
 
-  return clean;
+  const firstWord = clean.split(/\s+/)[0].toLowerCase();
+  if (clean && clean.length >= 2 && !['that', 'you', 'ready', 'how', 'what', 'would', 'can', 'let', 'do', 'are', 'is', 'the', 'a', 'an', 'exactly', 'perfect'].includes(firstWord)) {
+    return clean;
+  }
+
+  // 4. Kana to Romaji converter fallback
+  if (jap) {
+    const fallbackRom = kanaToRomaji(jap);
+    if (fallbackRom && fallbackRom.trim()) return fallbackRom.trim();
+  }
+
+  return clean || 'N/A';
 };
 
 export const extractCleanEnglish = (englishText: string, fullText: string): string => {
   const target = englishText || fullText;
   if (!target) return "";
+  
   const engMatch = target.match(/ENGLISH:\s*(.*?)(?=JAPANESE:|ROMAJI:|$)/is);
   if (engMatch && engMatch[1].trim()) {
     return engMatch[1].replace(/<\/?b>/gi, '').replace(/\*\*/g, '').trim();
@@ -109,7 +151,14 @@ export const extractCleanEnglish = (englishText: string, fullText: string): stri
     return meansMatch[1].trim();
   }
 
-  return target.replace(/<\/?b>/gi, '').replace(/\*\*/g, '').trim();
+  // Extract English text by stripping CJK
+  let clean = target
+    .replace(/<\/?b>/gi, '')
+    .replace(/\*\*/g, '')
+    .replace(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303fー・～！？、。]/g, '')
+    .trim();
+
+  return clean || 'Meaning';
 };
 
 export default function VoiceTutor({
@@ -504,30 +553,15 @@ export default function VoiceTutor({
                   if (engMatch) english = cleanFormat(engMatch[1]);
                 } else {
                   // Smart Fallback Parser for natural tutor responses
-                  const jpRegex = /(?:[A-Za-z0-9\s-]*[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff][\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\s0-9A-Za-z?!=~ー・]*[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff?!~]?)/g;
-                  const jpMatches = completedText.match(jpRegex);
-                  if (jpMatches && jpMatches.length > 0) {
-                    japanese = cleanFormat(jpMatches[0]);
-
-                    // Extract Romaji if present
-                    const textAfterJp = completedText.slice(completedText.indexOf(jpMatches[0]) + jpMatches[0].length);
-                    const romCandidateMatch = textAfterJp.match(/([A-Za-z0-9\s.,?!'\-]{4,})(?=\.|\?|That means|meaning|$)/i);
-                    if (romCandidateMatch && romCandidateMatch[1]) {
-                      const candidateRom = cleanFormat(romCandidateMatch[1]);
-                      if (!candidateRom.toLowerCase().includes("you can say") && !candidateRom.toLowerCase().includes("that means")) {
-                        romaji = candidateRom;
-                      }
-                    }
-
-                    // Extract English translation
-                    const meansMatch = completedText.match(/(?:That means|meaning|translates to|which means),?\s*["']?([^"'.!?]+)["']?/i);
-                    if (meansMatch && meansMatch[1]) {
-                      english = cleanFormat(meansMatch[1]);
-                    }
-                  } else {
-                    japanese = cleanFormat(completedText);
-                  }
+                  japanese = extractCleanJapanese(completedText);
+                  romaji = extractCleanRomaji("", completedText, japanese);
+                  english = extractCleanEnglish("", completedText);
                 }
+              }
+              
+              // Ensure Romaji is always populated if Japanese is present
+              if (japanese && (!romaji || romaji === 'N/A')) {
+                romaji = extractCleanRomaji("", completedText, japanese);
               }
               
               const newMsg: Message = {

@@ -400,12 +400,19 @@ async function analyzeTurnTranscript(ai: GoogleGenAI, transcriptText: string) {
 
 Spoken Tutor Turn: "${transcriptText}"
 
-Return a valid JSON object with:
-- "japanese": The target phrase in Japanese Kanji/Kana script (e.g. "A4 サイズの封筒はありますか？" or "お会計をお願いします").
-- "romaji": The Romaji reading of the Japanese phrase.
-- "english": The English meaning of the phrase.`;
+CRITICAL INSTRUCTIONS:
+1. "japanese": Extract ONLY the Japanese phrase in Kanji/Kana script (e.g., "お支払いはどうされますか？"). DO NOT include any English or Romaji in this field.
+2. "romaji": Provide the FULL, complete Romaji reading for the ENTIRE Japanese phrase (e.g., "Oshiharai wa dousaremasu ka?"). DO NOT truncate or omit any part of the Romaji reading.
+3. "english": Provide the English translation of the phrase (e.g., "How will you be paying?").
 
-  const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-2.0-flash"];
+Return a valid JSON object matching these fields exactly:
+{
+  "japanese": "...",
+  "romaji": "...",
+  "english": "..."
+}`;
+
+  const modelsToTry = ["gemini-2.0-flash", "gemini-2.0-flash-lite"];
 
   for (const modelName of modelsToTry) {
     try {
