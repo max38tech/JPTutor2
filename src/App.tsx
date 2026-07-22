@@ -54,6 +54,12 @@ export default function App() {
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [isLiveConnected, setIsLiveConnected] = useState(false);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.screen && (window.screen as any).orientation?.lock) {
+      (window.screen as any).orientation.lock('portrait').catch(() => {});
+    }
+  }, []);
+
   // Core application states
   const [sessions, setSessions] = useState<TopicSession[]>([]);
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);

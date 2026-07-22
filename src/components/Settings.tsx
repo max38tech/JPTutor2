@@ -306,7 +306,7 @@ export default function Settings({
           {/* Gemini Live AI Voice Selection Dropdown */}
           <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="flex justify-between items-center">
-              <span className="font-bold text-slate-700 dark:text-slate-300">Live Practice Voice</span>
+              <span className="font-bold text-slate-700 dark:text-slate-300">Live Practice Voice & Persona</span>
               <span className="text-[10px] text-indigo-500 dark:text-indigo-300 font-bold font-mono">
                 Gemini Live API
               </span>
@@ -316,15 +316,15 @@ export default function Settings({
               onChange={handleLiveVoiceChange}
               className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 dark:text-slate-100 font-semibold text-xs cursor-pointer"
             >
-              <option value="Aoede">Aoede (Default - Clear Female)</option>
-              <option value="Charon">Charon (Warm Male)</option>
-              <option value="Fenrir">Fenrir (Deep Male)</option>
-              <option value="Kore">Kore (Soft Female)</option>
-              <option value="Puck">Puck (Friendly Male)</option>
+              <option value="Aoede">Aoede (Hana-sensei - Clear Female)</option>
+              <option value="Kore">Kore (Yuki-sensei - Soft Female)</option>
+              <option value="Puck">Puck (Ken-sensei - Friendly Male)</option>
+              <option value="Charon">Charon (Hiro-sensei - Warm Male)</option>
+              <option value="Fenrir">Fenrir (Taro-sensei - Deep Male)</option>
             </select>
           </div>
 
-          {/* Microsoft Edge Neural Card & Log Speech Voice Selection */}
+          {/* Card & Log Speech Voice Selection */}
           <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="flex justify-between items-center">
               <span className="font-bold text-slate-700 dark:text-slate-300">Flashcards & Log Audio Voice</span>
@@ -351,12 +351,9 @@ export default function Settings({
               onChange={(e) => onUpdateSettings({ ...settings, cardVoice: e.target.value })}
               className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 dark:text-slate-100 font-semibold text-xs cursor-pointer"
             >
-              <option value="ja-JP-NanamiNeural">Nanami (Natural Female - Default)</option>
-              <option value="ja-JP-AoiNeural">Aoi (Cute / Energetic Female)</option>
-              <option value="ja-JP-MayuNeural">Mayu (Soft & Gentle Female)</option>
-              <option value="ja-JP-KeitaNeural">Keita (Clear Male)</option>
-              <option value="ja-JP-DaichiNeural">Daichi (Deep & Calm Male)</option>
-              <option value="ja-JP-NaokiNeural">Naoki (Friendly Male)</option>
+              <option value="ja-JP-NanamiNeural">Nanami (Natural Female - Edge HD)</option>
+              <option value="ja-JP-KeitaNeural">Keita (Natural Male - Edge HD)</option>
+              <option value="gtx">Hana (Google Mobile HD Voice)</option>
             </select>
           </div>
         </div>

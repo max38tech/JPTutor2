@@ -294,7 +294,8 @@ function createWavHeader(pcmData: Buffer, sampleRate = 24000, numChannels = 1, b
 
   return Buffer.concat([header, pcmData]);
 }
-// High Quality Japanese TTS endpoint using Microsoft Edge Neural TTS (ja-JP-NanamiNeural, Aoi, Mayu, Keita, Daichi, Naoki)
+
+// High Quality Japanese TTS endpoint
 app.get("/api/tts", async (req, res) => {
   try {
     const text = req.query.text as string;
@@ -311,9 +312,35 @@ app.get("/api/tts", async (req, res) => {
       .replace(/<\/?b>/gi, '')
       .trim();
 
+    if (requestedVoice === 'gtx' || requestedVoice === 'ja-JP-gtx') {
+      console.log(`[TTS API] Generating Google HD Mobile TTS for: "${cleanText}"`);
+      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=gtx&q=${encodeURIComponent(cleanText)}`;
+      const requestOptions = {
+        headers: {
+          "User-Agent": "AndroidTranslate/7.16.0 (Linux; U; Android 12; Pixel 6 Pro)"
+        }
+      };
+      return https.get(ttsUrl, requestOptions, (proxyResponse) => {
+        if (proxyResponse.statusCode !== 200) {
+          console.error(`Google TTS proxy returned status ${proxyResponse.statusCode}`);
+          return res.status(500).send("Failed to fetch speech from Google Translate");
+        }
+        res.setHeader("Content-Type", proxyResponse.headers["content-type"] || "audio/mpeg");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        proxyResponse.pipe(res);
+      }).on("error", (e) => {
+        console.error("TTS proxy network error:", e);
+        res.status(500).send("TTS proxy network error");
+      });
+    }
+
+    const edgeVoice = (requestedVoice === 'ja-JP-KeitaNeural' || requestedVoice.toLowerCase().includes('keita')) 
+      ? 'ja-JP-KeitaNeural' 
+      : 'ja-JP-NanamiNeural';
+
     // Primary High Quality Voice: Microsoft Edge Neural TTS
     try {
-      console.log(`[TTS API] Generating Microsoft Edge Neural TTS (${requestedVoice}) for: "${cleanText}"`);
+      console.log(`[TTS API] Generating Microsoft Edge Neural TTS (${edgeVoice}) for: "${cleanText}"`);
       const dataDir = path.join(process.cwd(), "data");
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
@@ -322,7 +349,7 @@ app.get("/api/tts", async (req, res) => {
       const tmpFilePath = path.join(dataDir, `tts_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp3`);
       
       const tts = new EdgeTTS({
-        voice: requestedVoice,
+        voice: edgeVoice,
         lang: 'ja-JP',
         outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
       });
@@ -333,43 +360,81 @@ app.get("/api/tts", async (req, res) => {
         const audioBuffer = fs.readFileSync(tmpFilePath);
         fs.unlinkSync(tmpFilePath); // Clean up temp file
         
-        console.log(`[TTS API] Microsoft Edge Neural TTS (${requestedVoice}) generated successfully (${audioBuffer.length} bytes)`);
+        console.log(`[TTS API] Microsoft Edge Neural TTS (${edgeVoice}) generated successfully (${audioBuffer.length} bytes)`);
         res.setHeader("Content-Type", "audio/mpeg");
         res.setHeader("Cache-Control", "public, max-age=86400");
         return res.send(audioBuffer);
       }
     } catch (err: any) {
       console.warn(`[TTS API] Microsoft Edge Neural TTS failed: ${err.message || err}, falling back to gtx proxy`);
+      // Fallback proxy logic if Edge fails
+      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=gtx&q=${encodeURIComponent(cleanText)}`;
+      https.get(ttsUrl, { headers: { "User-Agent": "AndroidTranslate/7.16.0" } }, (proxyResponse) => {
+        res.setHeader("Content-Type", proxyResponse.headers["content-type"] || "audio/mpeg");
+        proxyResponse.pipe(res);
+      });
     }
-
-    // Fallback to Google Translate mobile app high-quality TTS proxy (client=gtx)
-    console.log(`[TTS API] Proxying high-quality gtx TTS for: "${cleanText}"`);
-    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=gtx&q=${encodeURIComponent(cleanText)}`;
-    
-    const requestOptions = {
-      headers: {
-        "User-Agent": "AndroidTranslate/7.16.0 (Linux; U; Android 12; Pixel 6 Pro)"
-      }
-    };
-
-    https.get(ttsUrl, requestOptions, (proxyResponse) => {
-      if (proxyResponse.statusCode !== 200) {
-        console.error(`Google TTS proxy returned status ${proxyResponse.statusCode}`);
-        return res.status(500).send("Failed to fetch speech from Google Translate");
-      }
-      
-      res.setHeader("Content-Type", proxyResponse.headers["content-type"] || "audio/mpeg");
-      res.setHeader("Cache-Control", "public, max-age=86400");
-      proxyResponse.pipe(res);
-    }).on("error", (e) => {
-      console.error("TTS proxy network error:", e);
-      res.status(500).send("TTS proxy network error");
-    });
   } catch (error: any) {
     console.error("TTS endpoint error:", error);
     res.status(500).send("Internal server error");
   }
 });
+
+function wsLog(msg: string) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  console.log(line.trim());
+  try {
+    const dataDir = path.join(process.cwd(), "data");
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    fs.appendFileSync(path.join(dataDir, "ws_debug.log"), line);
+  } catch (err) {
+    // Ignore log writing errors
+  }
+}
+
+async function analyzeTurnTranscript(ai: GoogleGenAI, transcriptText: string) {
+  if (!transcriptText || transcriptText.trim().length < 5) return null;
+  const prompt = `You are a Japanese language analysis assistant. Extract the target Japanese learning phrase from this spoken tutor turn statement.
+
+Spoken Tutor Turn: "${transcriptText}"
+
+Return a valid JSON object with:
+- "japanese": The target phrase in Japanese Kanji/Kana script (e.g. "A4 サイズの封筒はありますか？" or "お会計をお願いします").
+- "romaji": The Romaji reading of the Japanese phrase.
+- "english": The English meaning of the phrase.`;
+
+  const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-2.0-flash"];
+
+  for (const modelName of modelsToTry) {
+    try {
+      const result = await ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+        }
+      });
+
+      if (result.text) {
+        const parsed = JSON.parse(result.text);
+        if (parsed.japanese && parsed.japanese.trim()) {
+          wsLog(`[TurnAnalysis] Successfully analyzed turn using model ${modelName}`);
+          return {
+            japanese: parsed.japanese.trim(),
+            romaji: parsed.romaji ? parsed.romaji.trim() : "",
+            english: parsed.english ? parsed.english.trim() : ""
+          };
+        }
+      }
+    } catch (err: any) {
+      wsLog(`[TurnAnalysis] Model ${modelName} failed: ${err.message || err}`);
+    }
+  }
+
+  return null;
+}
 
 // Serve frontend assets or mount Vite dev server
 async function startServer() {
@@ -418,7 +483,6 @@ async function startServer() {
   wss.on("headers", (headers, req) => {
     wsLog(`[WSS Headers] Upgrade request reached WS Server for URL: ${req.url}`);
     headers.forEach(h => {
-      // Avoid printing sensitive info like cookie/authorization contents
       if (!h.toLowerCase().startsWith('set-cookie') && !h.toLowerCase().startsWith('authorization')) {
         wsLog(`  -> Header line: ${h}`);
       }
@@ -428,48 +492,6 @@ async function startServer() {
   wss.on("error", (err) => {
     wsLog(`[WSS Error] WebSocket Server Error: ${err.stack || err.message || err}`);
   });
-
-async function analyzeTurnTranscript(ai: GoogleGenAI, transcriptText: string) {
-  if (!transcriptText || transcriptText.trim().length < 5) return null;
-  const prompt = `You are a Japanese language analysis assistant. Extract the target Japanese learning phrase from this spoken tutor turn statement.
-
-Spoken Tutor Turn: "${transcriptText}"
-
-Return a valid JSON object with:
-- "japanese": The target phrase in Japanese Kanji/Kana script (e.g. "A4 サイズの封筒はありますか？" or "お会計をお願いします").
-- "romaji": The Romaji reading of the Japanese phrase.
-- "english": The English meaning of the phrase.`;
-
-  const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-2.0-flash"];
-
-  for (const modelName of modelsToTry) {
-    try {
-      const result = await ai.models.generateContent({
-        model: modelName,
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-        }
-      });
-
-      if (result.text) {
-        const parsed = JSON.parse(result.text);
-        if (parsed.japanese && parsed.japanese.trim()) {
-          wsLog(`[TurnAnalysis] Successfully analyzed turn using model ${modelName}`);
-          return {
-            japanese: parsed.japanese.trim(),
-            romaji: parsed.romaji ? parsed.romaji.trim() : "",
-            english: parsed.english ? parsed.english.trim() : ""
-          };
-        }
-      }
-    } catch (err: any) {
-      wsLog(`[TurnAnalysis] Model ${modelName} failed: ${err.message || err}`);
-    }
-  }
-
-  return null;
-}
 
   wss.on("connection", async (clientWs, req) => {
     wsLog(`[Connection] New client connection request from URL: ${req.url}`);
@@ -488,7 +510,21 @@ Return a valid JSON object with:
       return;
     }
 
-    wsLog(`[Connection] Connecting to Gemini Live with API Key: ${apiKey.substring(0, 6)}...`);
+    const getTutorPersona = (voice: string) => {
+      switch (voice) {
+        case 'Charon': return { name: 'Hiro-sensei', gender: 'male', title: 'a friendly male Japanese tutor' };
+        case 'Fenrir': return { name: 'Taro-sensei', gender: 'male', title: 'a deep-voiced male Japanese tutor' };
+        case 'Puck': return { name: 'Ken-sensei', gender: 'male', title: 'an encouraging male Japanese tutor' };
+        case 'Kore': return { name: 'Yuki-sensei', gender: 'female', title: 'a gentle female Japanese tutor' };
+        case 'Aoede':
+        default:
+          return { name: 'Hana-sensei', gender: 'female', title: 'an encouraging female Japanese tutor' };
+      }
+    };
+
+    const persona = getTutorPersona(userVoice);
+
+    wsLog(`[Connection] Connecting to Gemini Live with API Key: ${apiKey.substring(0, 6)}... (Voice: ${userVoice}, Persona: ${persona.name})`);
 
     const ai = new GoogleGenAI({
       apiKey: apiKey,
@@ -510,7 +546,12 @@ Return a valid JSON object with:
       speechConfig: {
         voiceConfig: { prebuiltVoiceConfig: { voiceName: userVoice } },
       },
-      systemInstruction: `You are an encouraging, experienced Japanese language tutor conducting a live 1-on-1 voice lesson for a beginner or intermediate student.
+      systemInstruction: `You are ${persona.name}, ${persona.title} conducting a live 1-on-1 voice lesson for a beginner or intermediate student.
+
+PERSONA & GENDER IDENTITY:
+1. YOUR NAME IS ${persona.name.toUpperCase()}. You are a ${persona.gender} native Japanese language teacher.
+2. NEVER introduce yourself as Hana or any other name if your name is ${persona.name}. When introducing yourself or asked your name, say: "My name is ${persona.name}!"
+3. Use ${persona.gender === 'male' ? 'masculine/male-appropriate' : 'feminine/female-appropriate'} phrasing when speaking Japanese.
 
 GUARDRAILS & TUTOR SCOPE:
 1. STRICT TUTOR ROLE: You are STRICTLY a Japanese Language Tutor. You MUST ONLY discuss Japanese language learning, vocabulary, grammar, pronunciation, Japanese cultural etiquette for conversations, or the active lesson scenario (e.g. ordering food, hotel check-in, asking directions).
