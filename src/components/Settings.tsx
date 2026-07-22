@@ -319,8 +319,8 @@ export default function Settings({
               <option value="Aoede">Aoede (Hana-sensei - Clear Female)</option>
               <option value="Kore">Kore (Yuki-sensei - Soft Female)</option>
               <option value="Puck">Puck (Ken-sensei - Friendly Male)</option>
-              <option value="Charon">Charon (Hiro-sensei - Warm Male)</option>
-              <option value="Fenrir">Fenrir (Taro-sensei - Deep Male)</option>
+              <option value="Fenrir">Fenrir (Hiro-sensei - Energetic Male)</option>
+              <option value="Charon">Charon (Taro-sensei - Deep Male)</option>
             </select>
           </div>
 

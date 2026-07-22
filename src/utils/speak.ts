@@ -1,11 +1,26 @@
 import { getServerBaseUrl } from './api';
 
 let sharedTtsAudioCtx: AudioContext | null = null;
+let currentTtsSource: AudioBufferSourceNode | null = null;
+
+export function stopTtsAudio() {
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+  }
+  if (currentTtsSource) {
+    try {
+      currentTtsSource.stop();
+    } catch (e) {
+      // Source might have finished playing
+    }
+    currentTtsSource = null;
+  }
+}
 
 function fallbackWebSpeech(cleanText: string, rate: number = 0.8, voiceURI?: string) {
   if (typeof window === 'undefined' || !window.speechSynthesis) return;
 
-  window.speechSynthesis.cancel();
+  stopTtsAudio();
   const utterance = new SpeechSynthesisUtterance(cleanText);
   utterance.lang = 'ja-JP';
   utterance.rate = rate;
@@ -44,6 +59,8 @@ export function speakJapanese(
     .trim();
 
   if (!cleanText) return;
+
+  stopTtsAudio();
 
   let apiKey = apiKeyParam || '';
   let cardVoice = cardVoiceParam || '';
@@ -85,9 +102,20 @@ export function speakJapanese(
         .then(arrayBuffer => sharedTtsAudioCtx!.decodeAudioData(arrayBuffer))
         .then(audioBuffer => {
           if (!sharedTtsAudioCtx) return;
+          
+          stopTtsAudio();
+
           const source = sharedTtsAudioCtx.createBufferSource();
           source.buffer = audioBuffer;
           source.connect(sharedTtsAudioCtx.destination);
+          currentTtsSource = source;
+          
+          source.onended = () => {
+            if (currentTtsSource === source) {
+              currentTtsSource = null;
+            }
+          };
+
           source.start(0);
         })
         .catch(err => {
