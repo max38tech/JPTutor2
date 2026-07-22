@@ -428,16 +428,21 @@ async function startServer() {
     wsLog(`[WSS Error] WebSocket Server Error: ${err.stack || err.message || err}`);
   });
 
+const removeKorean = (str: string) => str ? str.replace(/[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/g, '').trim() : '';
+
 async function analyzeTurnTranscript(ai: GoogleGenAI, transcriptText: string) {
   if (!transcriptText || transcriptText.trim().length < 5) return null;
   const prompt = `You are a Japanese language analysis assistant. Extract the target Japanese learning phrase from this spoken tutor turn statement.
 
 Spoken Tutor Turn: "${transcriptText}"
 
-Return a JSON object with:
-- "japanese": The target phrase in Japanese Kanji/Kana script (e.g. "A4 サイズの封筒はありますか？" or "お会計をお願いします").
-- "romaji": The Romaji reading of the Japanese phrase.
-- "english": The English meaning of the phrase.`;
+RULES:
+1. The extracted phrase MUST contain ONLY Japanese Kanji/Kana script (e.g. "A4 サイズの封筒はありますか？" or "お会計をお願いします").
+2. ABSOLUTELY NO Korean, Hangul, or Chinese simplified-only characters.
+3. Return a valid JSON object with:
+   - "japanese": The target phrase in Japanese Kanji/Kana script.
+   - "romaji": The Romaji reading of the Japanese phrase.
+   - "english": The English meaning of the phrase.`;
 
   const modelsToTry = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 
@@ -453,12 +458,13 @@ Return a JSON object with:
 
       if (result.text) {
         const parsed = JSON.parse(result.text);
-        if (parsed.japanese && parsed.japanese.trim()) {
+        const cleanJap = removeKorean(parsed.japanese || "");
+        if (cleanJap && cleanJap.trim()) {
           wsLog(`[TurnAnalysis] Successfully analyzed turn using model ${modelName}`);
           return {
-            japanese: parsed.japanese.trim(),
-            romaji: parsed.romaji ? parsed.romaji.trim() : "",
-            english: parsed.english ? parsed.english.trim() : ""
+            japanese: cleanJap,
+            romaji: removeKorean(parsed.romaji || ""),
+            english: removeKorean(parsed.english || "")
           };
         }
       }
@@ -509,15 +515,19 @@ Return a JSON object with:
       speechConfig: {
         voiceConfig: { prebuiltVoiceConfig: { voiceName: userVoice } },
       },
-      systemInstruction: `You are an encouraging, experienced Japanese language tutor conducting a live 1-on-1 voice lesson for a beginner.
+      systemInstruction: `You are an encouraging, experienced Japanese language tutor conducting a live 1-on-1 voice lesson for a beginner or intermediate student.
+
+GUARDRAILS & TUTOR SCOPE:
+1. STRICT TUTOR ROLE: You are STRICTLY a Japanese Language Tutor. You MUST ONLY discuss Japanese language learning, vocabulary, grammar, pronunciation, Japanese cultural etiquette for conversations, or the active lesson scenario (e.g. ordering food, hotel check-in, asking directions).
+2. OFF-TOPIC REDIRECTION: If the student asks about off-topic subjects (e.g. quantum physics, general world news, software coding, non-Japanese trivia, or general chitchat unrelated to learning Japanese), politely decline in 1 short sentence and bring the conversation back to Japanese language practice. Example: "As your Japanese tutor, I can only help you practice Japanese! Let me teach you how to say...?"
+3. STRICT LANGUAGE BOUNDARY: The student speaks ONLY English and Japanese. Interpret all incoming student microphone audio strictly as English or Japanese. NEVER misidentify, transcribe, or respond in Korean, Chinese, or any other language.
 
 PEDAGOGY & CONVERSATION RULES:
 1. Speak warmly and naturally out loud like a real human tutor.
 2. When the student speaks in English asking how to say something, teach them the phrase by saying it clearly out loud in Japanese (e.g. "You can say: お会計をお願いします。 Okaikei wo onegai shimasu. That means: Check, please.").
 3. Immediately prompt the student to repeat it (e.g. "Now you try saying it!") and STOP speaking so the student can repeat the Japanese phrase. Do NOT keep speaking in English or move on automatically.
 4. When the student attempts to speak the Japanese phrase, provide encouraging feedback on their attempt.
-5. Always ask: "Are you ready to move on or would you like to practice more?" NEVER move on to a new topic until the student confirms they are ready.
-6. LANGUAGE RESTRICTION: The student speaks ONLY English and Japanese. Interpret all incoming student microphone audio as English or Japanese. Never misidentify or transcribe student speech as Korean or Chinese.`,
+5. Always ask: "Are you ready to move on or would you like to practice more?" NEVER move on to a new topic until the student confirms they are ready.`,
       inputAudioTranscription: {},
       outputAudioTranscription: {},
       realtimeInputConfig: {
@@ -558,11 +568,17 @@ PEDAGOGY & CONVERSATION RULES:
           clientWs.send(JSON.stringify({ textChunk: outputTranscript, role: 'tutor' }));
         }
         if (userTranscript) {
-          wsLog(`[Gemini] Input Transcription: ${userTranscript}`);
-          clientWs.send(JSON.stringify({ userTranscript, isInterim: false }));
+          const cleaned = removeKorean(userTranscript);
+          if (cleaned) {
+            wsLog(`[Gemini] Input Transcription: ${cleaned}`);
+            clientWs.send(JSON.stringify({ userTranscript: cleaned, isInterim: false }));
+          }
         }
         if (interimUserTranscript) {
-          clientWs.send(JSON.stringify({ userTranscript: interimUserTranscript, isInterim: true }));
+          const cleanedInterim = removeKorean(interimUserTranscript);
+          if (cleanedInterim) {
+            clientWs.send(JSON.stringify({ userTranscript: cleanedInterim, isInterim: true }));
+          }
         }
         if (turnComplete) {
           const fullText = currentTurnTutorText.trim();

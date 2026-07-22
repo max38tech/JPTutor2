@@ -454,6 +454,7 @@ export default function VoiceTutor({
                   .replace(/<\/?b>/gi, '')
                   .replace(/\*\*/g, '')
                   .replace(/\*/g, '')
+                  .replace(/[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/g, '')
                   .trim();
                 const newUserMsg: Message = {
                   id: `user-${Date.now()}`,
