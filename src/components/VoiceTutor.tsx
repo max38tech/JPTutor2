@@ -454,7 +454,6 @@ export default function VoiceTutor({
                   .replace(/<\/?b>/gi, '')
                   .replace(/\*\*/g, '')
                   .replace(/\*/g, '')
-                  .replace(/[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/g, '')
                   .trim();
                 const newUserMsg: Message = {
                   id: `user-${Date.now()}`,
@@ -942,7 +941,7 @@ export default function VoiceTutor({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          speakJapanese(msg.japanese!, settings.voiceRate, settings.voiceURI, settings.apiKey);
+                          speakJapanese(msg.japanese!, settings.voiceRate, settings.voiceURI, settings.apiKey, settings.cardVoice);
                         }}
                         className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 transition-all cursor-pointer"
                         title="Speak aloud"

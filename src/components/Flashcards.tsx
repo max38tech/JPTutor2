@@ -272,7 +272,7 @@ export default function Flashcards({
                       onClick={(e) => {
                         e.stopPropagation(); // Stop propagation to prevent card flipping
                         const cleanJap = cleanJapaneseForCard(currentPracticeCard.japanese);
-                        speakJapanese(cleanJap, settings.voiceRate, settings.voiceURI, settings.apiKey);
+                        speakJapanese(cleanJap, settings.voiceRate, settings.voiceURI, settings.apiKey, settings.cardVoice);
                       }}
                       className="mx-auto mt-2 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-300 rounded-full transition-all active:scale-95 flex items-center gap-1.5 text-xs font-bold cursor-pointer border border-indigo-100 dark:border-slate-700 shadow-xs"
                       title="Listen to pronunciation"
@@ -316,7 +316,7 @@ export default function Flashcards({
                       onClick={(e) => {
                         e.stopPropagation(); // Stop propagation to prevent card flipping
                         const cleanJap = cleanJapaneseForCard(currentPracticeCard.japanese);
-                        speakJapanese(cleanJap, settings.voiceRate, settings.voiceURI, settings.apiKey);
+                        speakJapanese(cleanJap, settings.voiceRate, settings.voiceURI, settings.apiKey, settings.cardVoice);
                       }}
                       className="mx-auto mt-2 px-3 py-1.5 bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-300 rounded-full transition-all active:scale-95 flex items-center gap-1.5 text-xs font-bold cursor-pointer border border-indigo-100 dark:border-slate-700 shadow-xs"
                       title="Listen to Japanese pronunciation"

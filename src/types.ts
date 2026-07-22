@@ -49,6 +49,7 @@ export interface UserSettings {
   voiceGender: 'female' | 'male' | 'natural';
   voiceURI?: string; // chosen WebSpeech API voice URI or name
   liveVoice?: string; // chosen Gemini Live AI voice (Aoede, Charon, Fenrir, Kore, Puck)
+  cardVoice?: string; // chosen Microsoft Edge Neural voice for Cards & Log Speech (Nanami, Aoi, Mayu, Keita, Daichi, Naoki)
   customServerUrl?: string; // custom server URL for API & WebSockets
 }
 

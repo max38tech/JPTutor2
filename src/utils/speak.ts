@@ -25,11 +25,17 @@ function fallbackWebSpeech(cleanText: string, rate: number = 0.8, voiceURI?: str
 }
 
 /**
- * Japanese text playback using Gemini 2.0 Flash Audio endpoint (/api/tts).
- * Decodes WAV audio via Web Audio API for zero-latency, high-quality playback.
+ * Japanese text playback using Gemini/Edge Audio endpoint (/api/tts).
+ * Decodes audio via Web Audio API for zero-latency, high-quality playback.
  * Falls back gracefully to browser SpeechSynthesis API if needed.
  */
-export function speakJapanese(text: string, rate: number = 0.8, voiceURI?: string, apiKeyParam?: string) {
+export function speakJapanese(
+  text: string, 
+  rate: number = 0.8, 
+  voiceURI?: string, 
+  apiKeyParam?: string,
+  cardVoiceParam?: string
+) {
   const cleanText = text
     .replace(/^JAPANESE:\s*/i, '')
     .replace(/^ROMAJI:\s*/i, '')
@@ -40,54 +46,58 @@ export function speakJapanese(text: string, rate: number = 0.8, voiceURI?: strin
   if (!cleanText) return;
 
   let apiKey = apiKeyParam || '';
-  if (!apiKey && typeof window !== 'undefined') {
+  let cardVoice = cardVoiceParam || '';
+
+  if (typeof window !== 'undefined') {
     try {
       const storedSettings = localStorage.getItem('nihongo_tutor_settings');
       if (storedSettings) {
         const parsed = JSON.parse(storedSettings);
-        if (parsed.apiKey) apiKey = parsed.apiKey;
+        if (!apiKey && parsed.apiKey) apiKey = parsed.apiKey;
+        if (!cardVoice && parsed.cardVoice) cardVoice = parsed.cardVoice;
       }
     } catch (e) {
-      console.error('Error reading apiKey for TTS:', e);
+      console.error('Error reading settings for TTS:', e);
     }
   }
 
+  if (!cardVoice) cardVoice = 'ja-JP-NanamiNeural';
+
+  // Construct TTS endpoint URL
   const serverBase = getServerBaseUrl();
-  if (serverBase) {
-    const ttsUrl = `${serverBase}/api/tts?text=${encodeURIComponent(cleanText)}&apiKey=${encodeURIComponent(apiKey)}`;
+  const ttsUrl = `${serverBase}/api/tts?text=${encodeURIComponent(cleanText)}&apiKey=${encodeURIComponent(apiKey)}&voice=${encodeURIComponent(cardVoice)}`;
 
-    try {
-      const AudioCtxClass = typeof window !== 'undefined' ? (window.AudioContext || (window as any).webkitAudioContext) : null;
-      if (AudioCtxClass) {
-        if (!sharedTtsAudioCtx || sharedTtsAudioCtx.state === 'closed') {
-          sharedTtsAudioCtx = new AudioCtxClass();
-        }
-        if (sharedTtsAudioCtx.state === 'suspended') {
-          sharedTtsAudioCtx.resume();
-        }
-
-        fetch(ttsUrl)
-          .then(res => {
-            if (!res.ok) throw new Error(`TTS server HTTP ${res.status}`);
-            return res.arrayBuffer();
-          })
-          .then(arrayBuffer => sharedTtsAudioCtx!.decodeAudioData(arrayBuffer))
-          .then(audioBuffer => {
-            if (!sharedTtsAudioCtx) return;
-            const source = sharedTtsAudioCtx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(sharedTtsAudioCtx.destination);
-            source.start(0);
-          })
-          .catch(err => {
-            console.warn('Gemini Server TTS WebAudio error, falling back to WebSpeech:', err);
-            fallbackWebSpeech(cleanText, rate, voiceURI);
-          });
-        return;
+  try {
+    const AudioCtxClass = typeof window !== 'undefined' ? (window.AudioContext || (window as any).webkitAudioContext) : null;
+    if (AudioCtxClass) {
+      if (!sharedTtsAudioCtx || sharedTtsAudioCtx.state === 'closed') {
+        sharedTtsAudioCtx = new AudioCtxClass();
       }
-    } catch (e) {
-      console.warn('WebAudio TTS exception:', e);
+      if (sharedTtsAudioCtx.state === 'suspended') {
+        sharedTtsAudioCtx.resume();
+      }
+
+      fetch(ttsUrl)
+        .then(res => {
+          if (!res.ok) throw new Error(`TTS server HTTP ${res.status}`);
+          return res.arrayBuffer();
+        })
+        .then(arrayBuffer => sharedTtsAudioCtx!.decodeAudioData(arrayBuffer))
+        .then(audioBuffer => {
+          if (!sharedTtsAudioCtx) return;
+          const source = sharedTtsAudioCtx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(sharedTtsAudioCtx.destination);
+          source.start(0);
+        })
+        .catch(err => {
+          console.warn('Server TTS WebAudio error, falling back to WebSpeech:', err);
+          fallbackWebSpeech(cleanText, rate, voiceURI);
+        });
+      return;
     }
+  } catch (e) {
+    console.warn('WebAudio TTS exception:', e);
   }
 
   fallbackWebSpeech(cleanText, rate, voiceURI);

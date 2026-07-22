@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getServerBaseUrl } from '../utils/api';
+import { speakJapanese } from '../utils/speak';
 
 interface SettingsProps {
   settings: UserSettings;
@@ -320,6 +321,42 @@ export default function Settings({
               <option value="Fenrir">Fenrir (Deep Male)</option>
               <option value="Kore">Kore (Soft Female)</option>
               <option value="Puck">Puck (Friendly Male)</option>
+            </select>
+          </div>
+
+          {/* Microsoft Edge Neural Card & Log Speech Voice Selection */}
+          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-slate-700 dark:text-slate-300">Flashcards & Log Audio Voice</span>
+              <button
+                type="button"
+                onClick={() => {
+                  speakJapanese(
+                    "こんにちは。日本語の練習をはじめましょう！", 
+                    settings.voiceRate, 
+                    settings.voiceURI, 
+                    settings.apiKey, 
+                    settings.cardVoice || 'ja-JP-NanamiNeural'
+                  );
+                }}
+                className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-300 rounded-lg transition-all text-[11px] font-bold flex items-center gap-1 cursor-pointer border border-indigo-100 dark:border-slate-700 active:scale-95"
+                title="Test current card voice audio"
+              >
+                <Volume2 className="w-3 h-3" />
+                Test Voice
+              </button>
+            </div>
+            <select
+              value={settings.cardVoice || 'ja-JP-NanamiNeural'}
+              onChange={(e) => onUpdateSettings({ ...settings, cardVoice: e.target.value })}
+              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 dark:text-slate-100 font-semibold text-xs cursor-pointer"
+            >
+              <option value="ja-JP-NanamiNeural">Nanami (Natural Female - Default)</option>
+              <option value="ja-JP-AoiNeural">Aoi (Cute / Energetic Female)</option>
+              <option value="ja-JP-MayuNeural">Mayu (Soft & Gentle Female)</option>
+              <option value="ja-JP-KeitaNeural">Keita (Clear Male)</option>
+              <option value="ja-JP-DaichiNeural">Daichi (Deep & Calm Male)</option>
+              <option value="ja-JP-NaokiNeural">Naoki (Friendly Male)</option>
             </select>
           </div>
         </div>

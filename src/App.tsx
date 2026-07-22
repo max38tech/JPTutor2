@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   voiceGender: 'natural',
   voiceURI: '',
   liveVoice: 'Aoede',
+  cardVoice: 'ja-JP-NanamiNeural',
   customServerUrl: 'https://jp-tutor-backend-638340504989.asia-east1.run.app',
 };
 

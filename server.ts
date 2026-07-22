@@ -294,11 +294,12 @@ function createWavHeader(pcmData: Buffer, sampleRate = 24000, numChannels = 1, b
 
   return Buffer.concat([header, pcmData]);
 }
-
-// High Quality Japanese TTS endpoint using Microsoft Edge Neural TTS (ja-JP-NanamiNeural)
+// High Quality Japanese TTS endpoint using Microsoft Edge Neural TTS (ja-JP-NanamiNeural, Aoi, Mayu, Keita, Daichi, Naoki)
 app.get("/api/tts", async (req, res) => {
   try {
     const text = req.query.text as string;
+    const requestedVoice = (req.query.voice as string) || 'ja-JP-NanamiNeural';
+
     if (!text) {
       return res.status(400).send("Text query parameter is required");
     }
@@ -310,9 +311,9 @@ app.get("/api/tts", async (req, res) => {
       .replace(/<\/?b>/gi, '')
       .trim();
 
-    // Primary High Quality Voice: Microsoft Edge Neural TTS (100% Free, 24kHz Ultra-Realistic Japanese Voice)
+    // Primary High Quality Voice: Microsoft Edge Neural TTS
     try {
-      console.log(`[TTS API] Generating Microsoft Edge Neural TTS (ja-JP-NanamiNeural) for: "${cleanText}"`);
+      console.log(`[TTS API] Generating Microsoft Edge Neural TTS (${requestedVoice}) for: "${cleanText}"`);
       const dataDir = path.join(process.cwd(), "data");
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
@@ -321,7 +322,7 @@ app.get("/api/tts", async (req, res) => {
       const tmpFilePath = path.join(dataDir, `tts_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp3`);
       
       const tts = new EdgeTTS({
-        voice: 'ja-JP-NanamiNeural',
+        voice: requestedVoice,
         lang: 'ja-JP',
         outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
       });
@@ -332,7 +333,7 @@ app.get("/api/tts", async (req, res) => {
         const audioBuffer = fs.readFileSync(tmpFilePath);
         fs.unlinkSync(tmpFilePath); // Clean up temp file
         
-        console.log(`[TTS API] Microsoft Edge Neural TTS generated successfully (${audioBuffer.length} bytes)`);
+        console.log(`[TTS API] Microsoft Edge Neural TTS (${requestedVoice}) generated successfully (${audioBuffer.length} bytes)`);
         res.setHeader("Content-Type", "audio/mpeg");
         res.setHeader("Cache-Control", "public, max-age=86400");
         return res.send(audioBuffer);
@@ -428,23 +429,18 @@ async function startServer() {
     wsLog(`[WSS Error] WebSocket Server Error: ${err.stack || err.message || err}`);
   });
 
-const removeKorean = (str: string) => str ? str.replace(/[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/g, '').trim() : '';
-
 async function analyzeTurnTranscript(ai: GoogleGenAI, transcriptText: string) {
   if (!transcriptText || transcriptText.trim().length < 5) return null;
   const prompt = `You are a Japanese language analysis assistant. Extract the target Japanese learning phrase from this spoken tutor turn statement.
 
 Spoken Tutor Turn: "${transcriptText}"
 
-RULES:
-1. The extracted phrase MUST contain ONLY Japanese Kanji/Kana script (e.g. "A4 サイズの封筒はありますか？" or "お会計をお願いします").
-2. ABSOLUTELY NO Korean, Hangul, or Chinese simplified-only characters.
-3. Return a valid JSON object with:
-   - "japanese": The target phrase in Japanese Kanji/Kana script.
-   - "romaji": The Romaji reading of the Japanese phrase.
-   - "english": The English meaning of the phrase.`;
+Return a valid JSON object with:
+- "japanese": The target phrase in Japanese Kanji/Kana script (e.g. "A4 サイズの封筒はありますか？" or "お会計をお願いします").
+- "romaji": The Romaji reading of the Japanese phrase.
+- "english": The English meaning of the phrase.`;
 
-  const modelsToTry = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+  const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-2.0-flash"];
 
   for (const modelName of modelsToTry) {
     try {
@@ -458,13 +454,12 @@ RULES:
 
       if (result.text) {
         const parsed = JSON.parse(result.text);
-        const cleanJap = removeKorean(parsed.japanese || "");
-        if (cleanJap && cleanJap.trim()) {
+        if (parsed.japanese && parsed.japanese.trim()) {
           wsLog(`[TurnAnalysis] Successfully analyzed turn using model ${modelName}`);
           return {
-            japanese: cleanJap,
-            romaji: removeKorean(parsed.romaji || ""),
-            english: removeKorean(parsed.english || "")
+            japanese: parsed.japanese.trim(),
+            romaji: parsed.romaji ? parsed.romaji.trim() : "",
+            english: parsed.english ? parsed.english.trim() : ""
           };
         }
       }
@@ -520,7 +515,7 @@ RULES:
 GUARDRAILS & TUTOR SCOPE:
 1. STRICT TUTOR ROLE: You are STRICTLY a Japanese Language Tutor. You MUST ONLY discuss Japanese language learning, vocabulary, grammar, pronunciation, Japanese cultural etiquette for conversations, or the active lesson scenario (e.g. ordering food, hotel check-in, asking directions).
 2. OFF-TOPIC REDIRECTION: If the student asks about off-topic subjects (e.g. quantum physics, general world news, software coding, non-Japanese trivia, or general chitchat unrelated to learning Japanese), politely decline in 1 short sentence and bring the conversation back to Japanese language practice. Example: "As your Japanese tutor, I can only help you practice Japanese! Let me teach you how to say...?"
-3. STRICT LANGUAGE BOUNDARY: The student speaks ONLY English and Japanese. Interpret all incoming student microphone audio strictly as English or Japanese. NEVER misidentify, transcribe, or respond in Korean, Chinese, or any other language.
+3. STRICT LANGUAGE BOUNDARY: The student speaks ONLY English and Japanese. All incoming microphone audio MUST be recognized strictly as English or Japanese words. NEVER misidentify, transcribe, or respond in Korean, Chinese, or any other language.
 
 PEDAGOGY & CONVERSATION RULES:
 1. Speak warmly and naturally out loud like a real human tutor.
@@ -568,17 +563,11 @@ PEDAGOGY & CONVERSATION RULES:
           clientWs.send(JSON.stringify({ textChunk: outputTranscript, role: 'tutor' }));
         }
         if (userTranscript) {
-          const cleaned = removeKorean(userTranscript);
-          if (cleaned) {
-            wsLog(`[Gemini] Input Transcription: ${cleaned}`);
-            clientWs.send(JSON.stringify({ userTranscript: cleaned, isInterim: false }));
-          }
+          wsLog(`[Gemini] Input Transcription: ${userTranscript}`);
+          clientWs.send(JSON.stringify({ userTranscript, isInterim: false }));
         }
         if (interimUserTranscript) {
-          const cleanedInterim = removeKorean(interimUserTranscript);
-          if (cleanedInterim) {
-            clientWs.send(JSON.stringify({ userTranscript: cleanedInterim, isInterim: true }));
-          }
+          clientWs.send(JSON.stringify({ userTranscript: interimUserTranscript, isInterim: true }));
         }
         if (turnComplete) {
           const fullText = currentTurnTutorText.trim();
