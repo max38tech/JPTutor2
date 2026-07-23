@@ -40,8 +40,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   autoSpeak: true,
   voiceGender: 'natural',
   voiceURI: '',
-  liveVoice: 'Aoede',
-  cardVoice: 'ja-JP-NanamiNeural',
+  liveVoice: 'Charon',
+  cardVoice: 'ja-JP-KeitaNeural',
   customServerUrl: 'https://jp-tutor-backend-638340504989.asia-east1.run.app',
 };
 

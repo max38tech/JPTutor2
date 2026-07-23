@@ -31,7 +31,7 @@ import { motion } from 'motion/react';
 import { speakJapanese } from '../utils/speak';
 import { getWebSocketBaseUrl, isServerConfigured } from '../utils/api';
 import { logger } from '../utils/logger';
-import { kanaToRomaji } from '../utils/romaji';
+import { kanaToRomaji, romajiToKana } from '../utils/romaji';
 
 const SUGGESTED_TOPICS = [
   { id: 'restaurant', emoji: '🍣', label: 'Ordering Food', detail: 'Practice ordering sushi & drinks' },
@@ -60,6 +60,12 @@ interface VoiceTutorProps {
   onConnectionStatusChange?: (connected: boolean) => void;
 }
 
+const isRomajiWord = (word: string): boolean => {
+  const clean = word.toLowerCase().replace(/[^a-z]/g, '');
+  if (!clean) return false;
+  return /^[a-z]+$/i.test(clean) && !/^(that|this|there|where|when|what|which|who|how|why|and|are|you|from|for|with|about|would|could|should|can|will|try|saying|say|place|your|name|again|move|ready)$/i.test(clean) && /[aiueo]/i.test(clean);
+};
+
 export const extractCleanJapanese = (text: string): string => {
   if (!text) return "";
   const cleanFormatted = text.replace(/<\/?b>/gi, '').replace(/\*\*/g, '').replace(/\*/g, '').trim();
@@ -69,14 +75,40 @@ export const extractCleanJapanese = (text: string): string => {
     return japMatch[1].trim();
   }
 
-  // Extract pure CJK / Hiragana / Katakana sequence without capturing Latin characters
+  // 1. Extract pure CJK / Hiragana / Katakana sequence
   const cjkMatch = cleanFormatted.match(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303fー・～！？、。]+/g);
   if (cjkMatch && cjkMatch.length > 0) {
     const longest = cjkMatch.reduce((a, b) => a.length >= b.length ? a : b);
     return longest.trim();
   }
 
-  return cleanFormatted;
+  // 2. Extract Romaji target phrase (in quotes or after triggers)
+  const matches = cleanFormatted.match(/["']([^"']{3,})["']/g);
+  if (matches && matches.length > 0) {
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const inner = matches[i].replace(/["']/g, '').trim();
+      const innerWords = inner.split(/\s+/).filter(Boolean);
+      const romajiScore = innerWords.filter(w => isRomajiWord(w)).length;
+      if (romajiScore > 0 && romajiScore >= innerWords.length / 2) {
+        const converted = romajiToKana(inner);
+        if (converted && converted !== inner) return converted;
+      }
+    }
+  }
+
+  // 3. Fallback: Search for Romaji phrase after triggers like 'you can say:', 'say:', 'saying:'
+  const triggerMatch = cleanFormatted.match(/(?:you can say|say|saying|for example)[:\s]*["']?([A-Za-z0-9\s.,?!'\-]{3,})["']?/i);
+  if (triggerMatch && triggerMatch[1]) {
+    const candidate = triggerMatch[1].replace(/[."']/g, '').trim();
+    const candidateWords = candidate.split(/\s+/).filter(Boolean);
+    const romajiScore = candidateWords.filter(w => isRomajiWord(w)).length;
+    if (romajiScore > 0) {
+      const converted = romajiToKana(candidate);
+      if (converted && converted !== candidate) return converted;
+    }
+  }
+
+  return "";
 };
 
 export const extractCleanRomaji = (romajiText: string, fullText: string, japaneseText?: string): string => {
@@ -412,7 +444,7 @@ export default function VoiceTutor({
       }
 
       // 3. Connect to WebSocket
-      const wsUrl = `${getWebSocketBaseUrl()}/live?apiKey=${encodeURIComponent(settings.apiKey)}&voice=${encodeURIComponent(settings.liveVoice || 'Aoede')}`;
+      const wsUrl = `${getWebSocketBaseUrl()}/live?apiKey=${encodeURIComponent(settings.apiKey)}&voice=${encodeURIComponent(settings.liveVoice || 'Charon')}`;
       logger.addLog('info', `Connecting to WebSocket live tutor backend at: ${getWebSocketBaseUrl()}/live`);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;

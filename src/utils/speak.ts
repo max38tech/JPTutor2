@@ -78,7 +78,7 @@ export function speakJapanese(
     }
   }
 
-  if (!cardVoice) cardVoice = 'ja-JP-NanamiNeural';
+  if (!cardVoice) cardVoice = 'ja-JP-KeitaNeural';
 
   // Construct TTS endpoint URL
   const serverBase = getServerBaseUrl();

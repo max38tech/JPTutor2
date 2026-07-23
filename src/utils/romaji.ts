@@ -140,3 +140,132 @@ export function kanaToRomaji(str: string): string {
     .replace(/\s+([.,?!、。？！])/g, '$1')
     .trim();
 }
+
+// Reverse mapping for Romaji to Kana
+const ROMAJI_TO_KANA: Record<string, string> = {
+  'kya': 'きゃ', 'kyu': 'きゅ', 'kyo': 'きょ',
+  'sha': 'しゃ', 'shu': 'しゅ', 'sho': 'しょ',
+  'cha': 'ちゃ', 'chu': 'ちゅ', 'cho': 'ちょ',
+  'nya': 'にゃ', 'nyu': 'にゅ', 'nyo': 'にょ',
+  'hya': 'ひゃ', 'hyu': 'ひゅ', 'hyo': 'ひょ',
+  'mya': 'みゃ', 'myu': 'みゅ', 'myo': 'みょ',
+  'rya': 'りゃ', 'ryu': 'りゅ', 'ryo': 'りょ',
+  'gya': 'ぎゃ', 'gyu': 'ぎゅ', 'gyo': 'ぎょ',
+  'jya': 'じゃ', 'jyu': 'じゅ', 'jyo': 'じょ',
+  'bya': 'びゃ', 'byu': 'びゅ', 'byo': 'びょ',
+  'pya': 'ぴゃ', 'pyu': 'ぴゅ', 'pyo': 'ぴょ',
+  'tsu': 'つ', 'shi': 'し', 'chi': 'ち', 'fu': 'ふ',
+
+  'ka': 'か', 'ki': 'き', 'ku': 'く', 'ke': 'け', 'ko': 'こ',
+  'sa': 'さ', 'si': 'し', 'su': 'す', 'se': 'せ', 'so': 'そ',
+  'ta': 'た', 'ti': 'ち', 'tu': 'つ', 'te': 'て', 'to': 'と',
+  'na': 'な', 'ni': 'に', 'nu': 'ぬ', 'ne': 'ね', 'no': 'の',
+  'ha': 'は', 'hi': 'ひ', 'hu': 'ふ', 'he': 'へ', 'ho': 'ほ',
+  'ma': 'ま', 'mi': 'み', 'mu': 'む', 'me': 'め', 'mo': 'も',
+  'ya': 'や', 'yu': 'ゆ', 'yo': 'よ',
+  'ra': 'ら', 'ri': 'り', 'ru': 'る', 're': 'れ', 'ro': 'ろ',
+  'wa': 'わ', 'wo': 'を',
+  'ga': 'が', 'gi': 'ぎ', 'gu': 'ぐ', 'ge': 'げ', 'go': 'ご',
+  'za': 'ざ', 'zi': 'じ', 'zu': 'ず', 'ze': 'ぜ', 'zo': 'ぞ',
+  'da': 'だ', 'di': 'ぢ', 'du': 'づ', 'de': 'で', 'do': 'ど',
+  'ba': 'ば', 'bi': 'び', 'bu': 'ぶ', 'be': 'べ', 'bo': 'ぼ',
+  'pa': 'ぱ', 'pi': 'ぴ', 'pu': 'ぷ', 'pe': 'ぺ', 'po': 'ぽ',
+  'ja': 'じゃ', 'ji': 'じ', 'ju': 'じゅ', 'jo': 'じょ',
+
+  'a': 'あ', 'i': 'い', 'u': 'う', 'e': 'え', 'o': 'お',
+  'n': 'ん'
+};
+
+const ROMAJI_WORD_MAP: Record<string, string> = {
+  'amerika': 'アメリカ',
+  'watashi': '私',
+  'namae': '名前',
+  'shon': 'ション',
+  'shawn': 'ショーン',
+  'kara': 'から',
+  'kimashita': '来ました',
+  'desu': 'です',
+  'oshiharai': 'お支払い',
+  'dousaremasu': 'どうされます',
+  'ka': 'か',
+  'onegai': 'お願い',
+  'shimasu': 'します',
+  'mantan': '満タン',
+  'hajimemashite': 'はじめまして',
+  'yoroshiku': 'よろしく',
+  'onegaishimasu': 'お願いします',
+  'arigatou': 'ありがとう',
+  'gozaimasu': 'ございます',
+  'sumimasen': 'すみません',
+  'gomen': 'ごめん',
+  'konnichiwa': 'こんにちは',
+  'konbanwa': 'こんばんは',
+  'ohayou': 'おはよう',
+  'doko': 'どこ',
+  'ikura': 'いくら',
+  'kore': 'これ',
+  'sore': 'それ',
+  'are': 'あれ',
+};
+
+/**
+ * Converts Romaji reading into Japanese Hiragana/Katakana script.
+ */
+export function romajiToKana(str: string): string {
+  if (!str) return '';
+
+  const cleanStr = str.replace(/<\/?b>/gi, '').replace(/\*\*/g, '').trim();
+  const words = cleanStr.split(/(\s+|[.,?!'"])/);
+
+  const convertedWords = words.map(word => {
+    const lower = word.toLowerCase().trim();
+    if (ROMAJI_WORD_MAP[lower]) {
+      return ROMAJI_WORD_MAP[lower];
+    }
+
+    if (!/^[a-z]+$/i.test(lower)) return word;
+
+    let res = '';
+    let i = 0;
+    const len = lower.length;
+
+    while (i < len) {
+      // Double consonants (e.g. 'kk', 'ss', 'tt', 'pp')
+      if (i + 1 < len && lower[i] === lower[i + 1] && /[bcdfghjklmnpqrstvwxyz]/.test(lower[i]) && lower[i] !== 'n') {
+        res += 'っ';
+        i++;
+        continue;
+      }
+
+      if (i + 2 < len) {
+        const tri = lower.slice(i, i + 3);
+        if (ROMAJI_TO_KANA[tri]) {
+          res += ROMAJI_TO_KANA[tri];
+          i += 3;
+          continue;
+        }
+      }
+
+      if (i + 1 < len) {
+        const bi = lower.slice(i, i + 2);
+        if (ROMAJI_TO_KANA[bi]) {
+          res += ROMAJI_TO_KANA[bi];
+          i += 2;
+          continue;
+        }
+      }
+
+      const uni = lower[i];
+      if (ROMAJI_TO_KANA[uni]) {
+        res += ROMAJI_TO_KANA[uni];
+      } else {
+        res += uni;
+      }
+      i++;
+    }
+
+    return res;
+  });
+
+  return convertedWords.join('').replace(/\s+/g, ' ').trim();
+}

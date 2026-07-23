@@ -506,7 +506,7 @@ async function startServer() {
     // Parse url to get the apiKey or any params
     const urlParams = new URLSearchParams(req.url?.split('?')[1] || '');
     const userApiKey = urlParams.get('apiKey');
-    const userVoice = urlParams.get('voice') || 'Aoede';
+    const userVoice = urlParams.get('voice') || 'Charon';
     
     // Use user-provided API Key or fallback to container's GEMINI_API_KEY env variable
     const apiKey = userApiKey && userApiKey.trim() !== "" && userApiKey !== "undefined" && userApiKey !== "null" ? userApiKey.trim() : (process.env.GEMINI_API_KEY || null);
