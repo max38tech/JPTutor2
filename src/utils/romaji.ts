@@ -141,6 +141,20 @@ export function kanaToRomaji(str: string): string {
     .trim();
 }
 
+/**
+ * Normalizes Romaji macron diacritics to standard double vowels.
+ * e.g., Jūsho -> Juusho, Tōkyō -> Toukyou
+ */
+export function normalizeRomaji(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/ā/g, 'aa').replace(/Ā/g, 'Aa')
+    .replace(/ī/g, 'ii').replace(/Ī/g, 'Ii')
+    .replace(/ū/g, 'uu').replace(/Ū/g, 'Uu')
+    .replace(/ē/g, 'ee').replace(/Ē/g, 'Ee')
+    .replace(/ō/g, 'ou').replace(/Ō/g, 'Ou');
+}
+
 // Reverse mapping for Romaji to Kana
 const ROMAJI_TO_KANA: Record<string, string> = {
   'kya': 'きゃ', 'kyu': 'きゅ', 'kyo': 'きょ',
@@ -206,7 +220,29 @@ const ROMAJI_WORD_MAP: Record<string, string> = {
   'kore': 'これ',
   'sore': 'それ',
   'are': 'あれ',
+  'juusho': '住所',
+  'jusho': '住所',
+  'touroku': '登録',
+  'shitai': 'したい',
+  'menyuu': 'メニュー',
+  'menu': 'メニュー',
+  'wo': 'を',
+  'o': 'お',
+  'bento': '弁当',
+  'fukuro': '袋',
+  'atsui': '熱い',
+  'tsumetai': '冷たい',
+  'okashi': 'お菓子',
 };
+
+const ENGLISH_STOP_WORDS = new Set([
+  'the', 'this', 'that', 'there', 'where', 'when', 'what', 'which', 'who', 'how', 'why',
+  'and', 'are', 'you', 'from', 'for', 'with', 'about', 'would', 'could', 'should', 'can', 'will',
+  'try', 'saying', 'say', 'place', 'your', 'name', 'again', 'move', 'ready', 'learn', 'topic',
+  'converse', 'looking', 'practiced', 'before', 'phrases', 'needing', 'warming', 'bento',
+  'start', 'something', 'great', 'alright', 'welcome', 'hello', 'yes', 'no', 'sure', 'my', 'is',
+  'let', 'lets', 'have', 'like', 'review', 'new', 'store', 'convenience', 'hotel', 'restaurant'
+]);
 
 /**
  * Converts Romaji reading into Japanese Hiragana/Katakana script.
@@ -214,16 +250,19 @@ const ROMAJI_WORD_MAP: Record<string, string> = {
 export function romajiToKana(str: string): string {
   if (!str) return '';
 
-  const cleanStr = str.replace(/<\/?b>/gi, '').replace(/\*\*/g, '').trim();
+  const cleanStr = normalizeRomaji(str.replace(/<\/?b>/gi, '').replace(/\*\*/g, '').trim());
   const words = cleanStr.split(/(\s+|[.,?!'"])/);
 
   const convertedWords = words.map(word => {
     const lower = word.toLowerCase().trim();
+    if (!lower) return word;
     if (ROMAJI_WORD_MAP[lower]) {
       return ROMAJI_WORD_MAP[lower];
     }
 
-    if (!/^[a-z]+$/i.test(lower)) return word;
+    if (ENGLISH_STOP_WORDS.has(lower) || !/^[a-z]+$/i.test(lower)) {
+      return word;
+    }
 
     let res = '';
     let i = 0;

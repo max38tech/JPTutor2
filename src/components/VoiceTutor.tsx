@@ -31,7 +31,7 @@ import { motion } from 'motion/react';
 import { speakJapanese } from '../utils/speak';
 import { getWebSocketBaseUrl, isServerConfigured } from '../utils/api';
 import { logger } from '../utils/logger';
-import { kanaToRomaji, romajiToKana } from '../utils/romaji';
+import { kanaToRomaji, romajiToKana, normalizeRomaji } from '../utils/romaji';
 
 const SUGGESTED_TOPICS = [
   { id: 'restaurant', emoji: '🍣', label: 'Ordering Food', detail: 'Practice ordering sushi & drinks' },
@@ -112,8 +112,8 @@ export const extractCleanJapanese = (text: string): string => {
 };
 
 export const extractCleanRomaji = (romajiText: string, fullText: string, japaneseText?: string): string => {
-  const target = romajiText || fullText;
-  if (!target && !japaneseText) return "";
+  const target = normalizeRomaji(romajiText || fullText || "");
+  const jap = japaneseText || extractCleanJapanese(fullText);
 
   // 1. Explicit ROMAJI: field
   const romMatch = target.match(/ROMAJI:\s*(.*?)(?=JAPANESE:|ENGLISH:|$)/is);
@@ -121,52 +121,29 @@ export const extractCleanRomaji = (romajiText: string, fullText: string, japanes
     return romMatch[1].replace(/<\/?b>/gi, '').replace(/\*\*/g, '').trim();
   }
 
-  // 2. Positional extraction immediately following Japanese phrase
-  const jap = japaneseText || extractCleanJapanese(fullText);
-  if (jap && fullText.includes(jap)) {
-    const afterJap = fullText.slice(fullText.indexOf(jap) + jap.length).trim();
-    const romCandidateMatch = afterJap.match(/^[?\s!.,]*([A-Za-z0-9\s.,?!'\-]+?)(?=\.|\?|!|\b(?:That means|Which means|Meaning|How|You|Would|Are|Let|Ready|Are you|Would you)\b|$)/i);
-    if (romCandidateMatch && romCandidateMatch[1]) {
-      let candidate = romCandidateMatch[1]
-        .replace(/<\/?b>/gi, '')
-        .replace(/\*\*/g, '')
-        .trim();
-      
-      // Filter out leading conversational English words
-      candidate = candidate.replace(/^(?:That was great|Exactly right|Perfect|Great job|You can say|That means|Which means|Meaning|How about|Would you|Are you|Let's|Now try|Try saying)[!.,?\s]*/i, '').trim();
-      
-      const firstWord = candidate.split(/\s+/)[0].toLowerCase();
-      if (candidate.length >= 2 && !['that', 'you', 'ready', 'how', 'what', 'would', 'can', 'let', 'do', 'are', 'is', 'the', 'a', 'an', 'exactly', 'perfect'].includes(firstWord)) {
-        return candidate;
-      }
+  // 2. Candidate extraction after triggers like 'you can say:', 'say:', 'saying:', or in parentheses/quotes
+  const candidates = [
+    target.match(/(?:you can say|say|saying|for example)[:\s]*["'(]?([A-Za-z0-9\s.,?!'\-]{3,})[)"']?/i)?.[1],
+    target.match(/["'\(]([A-Za-z0-9\s.,?!'\-]{3,})["'\)]/)?.[1]
+  ].filter(Boolean);
+
+  for (const rawCandidate of candidates) {
+    if (!rawCandidate) continue;
+    const cleanCand = rawCandidate.replace(/[."']/g, '').trim();
+    const words = cleanCand.split(/\s+/).filter(Boolean);
+    const romajiScore = words.filter(w => isRomajiWord(w)).length;
+    if (romajiScore > 0 && romajiScore >= words.length / 2) {
+      return cleanCand;
     }
   }
 
-  // 3. Global CJK stripping fallback
-  let clean = target
-    .replace(/<\/?b>/gi, '')
-    .replace(/\*\*/g, '')
-    .replace(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303fー・～！？、。]/g, '')
-    .trim();
-
-  clean = clean
-    .replace(/^(?:That was great|Exactly right|Perfect|Great job|You can say|That means|Which means|Meaning|How about|Would you|Are you|Let's|Now try|Try saying)[!.,?\s]*/i, '')
-    .replace(/(?:\.|\?|!)\s*(?:Want|Would|Ready|How|Can|Try|That|You|Let|Now|Which|What|Do|Are|Does|Is|So|Great|Good|Exactly|Perfect|Shall).*$/is, '')
-    .replace(/(?:\b(?:Want|Would|Ready|How|Can|Try|That means|You're|Now you|Could I|Do you|Ready to|How about|Let's|Want to|Would you)\b).*$/is, '')
-    .trim();
-
-  const firstWord = clean.split(/\s+/)[0].toLowerCase();
-  if (clean && clean.length >= 2 && !['that', 'you', 'ready', 'how', 'what', 'would', 'can', 'let', 'do', 'are', 'is', 'the', 'a', 'an', 'exactly', 'perfect'].includes(firstWord)) {
-    return clean;
-  }
-
-  // 4. Kana to Romaji converter fallback
+  // 3. Fallback to kanaToRomaji if Japanese text exists
   if (jap) {
     const fallbackRom = kanaToRomaji(jap);
     if (fallbackRom && fallbackRom.trim()) return fallbackRom.trim();
   }
 
-  return clean || 'N/A';
+  return 'N/A';
 };
 
 export const extractCleanEnglish = (englishText: string, fullText: string): string => {
