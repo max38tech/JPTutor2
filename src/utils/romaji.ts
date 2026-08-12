@@ -16,13 +16,14 @@ const KANA_MAP: Record<string, string> = {
   'や': 'ya', 'ゆ': 'yu', 'よ': 'yo',
   'ら': 'ra', 'り': 'ri', 'る': 'ru', 'れ': 're', 'ろ': 'ro',
   'わ': 'wa', 'ゐ': 'i', 'ゑ': 'e', 'を': 'o', 'ん': 'n',
-  
+
   // Dakuten
   'が': 'ga', 'ぎ': 'gi', 'ぐ': 'gu', 'げ': 'ge', 'ご': 'go',
   'ざ': 'za', 'じ': 'ji', 'ず': 'zu', 'ぜ': 'ze', 'ぞ': 'zo',
   'だ': 'da', 'ぢ': 'ji', 'づ': 'zu', 'で': 'de', 'ど': 'do',
   'ば': 'ba', 'び': 'bi', 'ぶ': 'bu', 'べ': 'be', 'ぼ': 'bo',
-  
+  'ゔ': 'vu',
+
   // Handakuten
   'ぱ': 'pa', 'ぴ': 'pi', 'ぷ': 'pu', 'ぺ': 'pe', 'ぽ': 'po',
 
@@ -36,6 +37,7 @@ const KANA_MAP: Record<string, string> = {
   'りゃ': 'rya', 'りゅ': 'ryu', 'りょ': 'ryo',
   'ぎゃ': 'gya', 'ぎゅ': 'gyu', 'ぎょ': 'gyo',
   'じゃ': 'ja', 'じゅ': 'ju', 'じょ': 'jo',
+  'ぢゃ': 'ja', 'ぢゅ': 'ju', 'ぢょ': 'jo',
   'びゃ': 'bya', 'びゅ': 'byu', 'びょ': 'byo',
   'ぴゃ': 'pya', 'ぴゅ': 'pyu', 'ぴょ': 'pyo',
 
@@ -50,13 +52,14 @@ const KANA_MAP: Record<string, string> = {
   'ヤ': 'ya', 'ユ': 'yu', 'ヨ': 'yo',
   'ラ': 'ra', 'リ': 'ri', 'ル': 'ru', 'レ': 're', 'ロ': 'ro',
   'ワ': 'wa', 'ヰ': 'i', 'ヱ': 'e', 'ヲ': 'o', 'ン': 'n',
-  
+
   // Katakana Dakuten & Handakuten
   'ガ': 'ga', 'ギ': 'gi', 'グ': 'gu', 'ゲ': 'ge', 'ゴ': 'go',
   'ザ': 'za', 'ジ': 'ji', 'ズ': 'zu', 'ゼ': 'ze', 'ゾ': 'zo',
   'ダ': 'da', 'ヂ': 'ji', 'ヅ': 'zu', 'デ': 'de', 'ド': 'do',
   'バ': 'ba', 'ビ': 'bi', 'ブ': 'bu', 'ベ': 'be', 'ボ': 'bo',
   'パ': 'pa', 'ピ': 'pi', 'プ': 'pu', 'ペ': 'pe', 'ポ': 'po',
+  'ヴ': 'vu',
 
   // Katakana Digraphs
   'キャ': 'kya', 'キュ': 'kyu', 'キョ': 'kyo',
@@ -70,89 +73,161 @@ const KANA_MAP: Record<string, string> = {
   'ジャ': 'ja', 'ジュ': 'ju', 'ジョ': 'jo',
   'ビャ': 'bya', 'ビュ': 'byu', 'ビョ': 'byo',
   'ピャ': 'pya', 'ピュ': 'pyu', 'ピョ': 'pyo',
-  'ティ': 'ti', 'ディ': 'di', 'デュ': 'dyu',
+  'ティ': 'ti', 'ディ': 'di', 'デュ': 'dyu', 'トゥ': 'tu', 'ドゥ': 'du',
   'ファ': 'fa', 'フィ': 'fi', 'フェ': 'fe', 'フォ': 'fo',
   'ウィ': 'wi', 'ウェ': 'we', 'ウォ': 'wo',
+  'ヴァ': 'va', 'ヴィ': 'vi', 'ヴェ': 've', 'ヴォ': 'vo',
+  'シェ': 'she', 'ジェ': 'je', 'チェ': 'che', 'ツァ': 'tsa', 'ツォ': 'tso',
+
+  // Stand-alone small kana (only reached when not part of a digraph)
+  'ぁ': 'a', 'ぃ': 'i', 'ぅ': 'u', 'ぇ': 'e', 'ぉ': 'o',
+  'ゃ': 'ya', 'ゅ': 'yu', 'ょ': 'yo',
+  'ァ': 'a', 'ィ': 'i', 'ゥ': 'u', 'ェ': 'e', 'ォ': 'o',
+  'ャ': 'ya', 'ュ': 'yu', 'ョ': 'yo',
 };
 
+const SOKUON = /^[っッ]$/;
+const LONG_VOWEL_MARK = 'ー';
+
+/** True if the string contains any Kanji, Hiragana or Katakana. */
+export function hasJapaneseScript(str: string): boolean {
+  return /[぀-ヿ㐀-䶿一-鿿]/.test(str || '');
+}
+
+/** True if the string contains Japanese script but no Kanji (romanizable without a dictionary). */
+export function isKanaOnly(str: string): boolean {
+  if (!str || !/[぀-ヿ]/.test(str)) return false;
+  return !/[㐀-䶿一-鿿]/.test(str);
+}
+
+/** Last vowel of a romanized mora, used to expand the ー long-vowel mark. */
+function trailingVowel(mora: string): string {
+  const vowels = mora.replace(/[^aiueo]/g, '');
+  return vowels.slice(-1);
+}
+
 /**
- * Converts Hiragana and Katakana text to Hepburn Romaji.
- * Leaves non-Kana / Kanji untouched or cleanly formatted.
+ * Romanizes a whitespace-free run of Kana. Anything that is not Kana (Kanji,
+ * punctuation, Latin) is passed through untouched.
+ * Returns the individual morae so the caller can decide how to join them.
  */
-export function kanaToRomaji(str: string): string {
-  if (!str) return '';
-  
-  let res = '';
+function romanizeMorae(token: string, applyParticleRules: boolean): string[] {
+  const morae: string[] = [];
+  // Consonant contributed by a small tsu, carried onto the next mora so that
+  // っと becomes one "tto" rather than a stray "t".
+  let sokuon = '';
+  const push = (mora: string) => {
+    morae.push(sokuon + mora);
+    sokuon = '';
+  };
   let i = 0;
 
-  while (i < str.length) {
-    const char = str[i];
+  while (i < token.length) {
+    const char = token[i];
 
-    // Check for small tsu (sokuton) -> double next consonant
-    if (char === 'っ' || char === 'ッ') {
-      if (i + 1 < str.length) {
-        // Look ahead to next character/digraph
-        const nextChar = str[i + 1];
-        const nextTwo = str.slice(i + 1, i + 3);
-        const rom = KANA_MAP[nextTwo] || KANA_MAP[nextChar];
-        if (rom) {
-          const firstConsonant = rom[0];
-          if (rom.startsWith('ch')) {
-            res += 't';
-          } else if (/[a-z]/i.test(firstConsonant)) {
-            res += firstConsonant.toLowerCase();
-          }
-        }
-      }
+    // Small tsu (sokuon) doubles the consonant of the following mora.
+    if (SOKUON.test(char)) {
+      const rom = KANA_MAP[token.slice(i + 1, i + 3)] || KANA_MAP[token[i + 1]];
+      if (rom) sokuon = rom.startsWith('ch') ? 't' : rom[0];
       i++;
       continue;
     }
 
-    // Check 2-character digraphs
-    if (i + 1 < str.length) {
-      const pair = str.slice(i, i + 2);
-      if (KANA_MAP[pair]) {
-        res += KANA_MAP[pair] + ' ';
-        i += 2;
-        continue;
-      }
+    // Long vowel mark repeats the vowel of the preceding mora.
+    if (char === LONG_VOWEL_MARK) {
+      const vowel = trailingVowel(morae[morae.length - 1] || '');
+      if (vowel) morae[morae.length - 1] += vowel;
+      i++;
+      continue;
     }
 
-    // Single character lookup
+    const pair = token.slice(i, i + 2);
+    if (KANA_MAP[pair]) {
+      push(KANA_MAP[pair]);
+      i += 2;
+      continue;
+    }
+
     if (KANA_MAP[char]) {
-      res += KANA_MAP[char] + (char === 'ー' ? '' : ' ');
+      let rom = KANA_MAP[char];
+
+      // Topic particle は and direction particle へ are pronounced wa / e.
+      // Only applied mid-token, where they are almost always particles in the
+      // short teaching sentences this app handles (word-initial は stays "ha").
+      if (applyParticleRules && i > 0 && (char === 'は' || char === 'へ')) {
+        rom = char === 'は' ? 'wa' : 'e';
+      }
+
+      // Hepburn apostrophe: ん before a vowel or y (きんえん -> kin'en).
+      if (rom === 'n') {
+        const next = KANA_MAP[token.slice(i + 1, i + 3)] || KANA_MAP[token[i + 1]];
+        if (next && /^[aiueoy]/.test(next)) rom = "n'";
+      }
+
+      push(rom);
       i++;
       continue;
     }
 
-    // Pass through punctuation / spaces / other
-    if (char === ' ' || char === '　' || char === '、' || char === '。' || char === '？' || char === '！') {
-      res += char;
-    } else {
-      res += char;
-    }
+    // Kanji, punctuation and anything else pass through unchanged.
+    push(char);
     i++;
   }
 
-  // Clean up spacing around punctuation and formatting
-  return res
+  return morae;
+}
+
+/**
+ * Converts Hiragana and Katakana to Hepburn Romaji.
+ *
+ * If the input already contains spaces it is treated as pre-segmented and each
+ * word is romanized as one unit ("ふくろ は ごりよう です か" -> "fukuro wa goriyou desu ka").
+ * Without spaces there is no way to find word boundaries, so morae are spaced
+ * individually ("これはいくらですか" -> "ko re wa i ku ra de su ka") which is
+ * still readable for a learner.
+ *
+ * Kanji cannot be romanized without a reading dictionary and is passed through,
+ * so callers should check the result with `hasJapaneseScript` before showing it.
+ */
+export function kanaToRomaji(str: string): string {
+  if (!str) return '';
+
+  const preSegmented = /\s/.test(str.trim());
+
+  const result = str
+    .split(/(\s+)/)
+    .map((token) => {
+      if (!token || /^\s+$/.test(token)) return ' ';
+      // A word that is exactly は / へ is unambiguously a particle.
+      if (preSegmented && (token === 'は' || token === 'へ')) {
+        return token === 'は' ? 'wa' : 'e';
+      }
+      const morae = romanizeMorae(token, !preSegmented);
+      return preSegmented ? morae.join('') : morae.join(' ');
+    })
+    .join('');
+
+  return result
+    // Japanese punctuation has no place on a Romaji line.
+    .replace(/[。．]/g, '.').replace(/[、，]/g, ',').replace(/？/g, '?').replace(/！/g, '!')
     .replace(/\s+/g, ' ')
-    .replace(/\s+([.,?!、。？！])/g, '$1')
+    .replace(/\s+([.,?!])/g, '$1')
     .trim();
 }
 
 /**
- * Normalizes Romaji macron diacritics to standard double vowels.
+ * Normalizes Romaji long-vowel diacritics to standard double vowels.
  * e.g., Jūsho -> Juusho, Tōkyō -> Toukyou
  */
 export function normalizeRomaji(str: string): string {
   if (!str) return '';
   return str
-    .replace(/ā/g, 'aa').replace(/Ā/g, 'Aa')
-    .replace(/ī/g, 'ii').replace(/Ī/g, 'Ii')
-    .replace(/ū/g, 'uu').replace(/Ū/g, 'Uu')
-    .replace(/ē/g, 'ee').replace(/Ē/g, 'Ee')
-    .replace(/ō/g, 'ou').replace(/Ō/g, 'Ou');
+    .normalize('NFC')
+    .replace(/[āâ]/g, 'aa').replace(/[ĀÂ]/g, 'Aa')
+    .replace(/[īî]/g, 'ii').replace(/[ĪÎ]/g, 'Ii')
+    .replace(/[ūû]/g, 'uu').replace(/[ŪÛ]/g, 'Uu')
+    .replace(/[ēê]/g, 'ee').replace(/[ĒÊ]/g, 'Ee')
+    .replace(/[ōô]/g, 'ou').replace(/[ŌÔ]/g, 'Ou');
 }
 
 // Reverse mapping for Romaji to Kana
@@ -235,17 +310,90 @@ const ROMAJI_WORD_MAP: Record<string, string> = {
   'okashi': 'お菓子',
 };
 
-const ENGLISH_STOP_WORDS = new Set([
-  'the', 'this', 'that', 'there', 'where', 'when', 'what', 'which', 'who', 'how', 'why',
-  'and', 'are', 'you', 'from', 'for', 'with', 'about', 'would', 'could', 'should', 'can', 'will',
-  'try', 'saying', 'say', 'place', 'your', 'name', 'again', 'move', 'ready', 'learn', 'topic',
-  'converse', 'looking', 'practiced', 'before', 'phrases', 'needing', 'warming', 'bento',
-  'start', 'something', 'great', 'alright', 'welcome', 'hello', 'yes', 'no', 'sure', 'my', 'is',
-  'let', 'lets', 'have', 'like', 'review', 'new', 'store', 'convenience', 'hotel', 'restaurant'
-]);
+/**
+ * True if a single word decomposes cleanly into Japanese morae.
+ * This is what separates real Romaji ("fukuro", "desu") from English words
+ * ("would", "bag", "question"), which is the check the old stop-word list
+ * was trying and failing to approximate.
+ */
+export function isRomajiWord(word: string): boolean {
+  const clean = normalizeRomaji(word).toLowerCase().replace(/[^a-z]/g, '');
+  if (!clean) return false;
+
+  let i = 0;
+  while (i < clean.length) {
+    // Doubled consonant = sokuon (kitte, gakkou). 'n' doubles legitimately (konnichiwa).
+    if (i + 1 < clean.length && clean[i] === clean[i + 1] && !'aiueon'.includes(clean[i])) {
+      i++;
+      continue;
+    }
+    const tri = clean.slice(i, i + 3);
+    if (tri.length === 3 && ROMAJI_TO_KANA[tri]) {
+      i += 3;
+      continue;
+    }
+    const bi = clean.slice(i, i + 2);
+    if (bi.length === 2 && ROMAJI_TO_KANA[bi]) {
+      i += 2;
+      continue;
+    }
+    if (ROMAJI_TO_KANA[clean[i]]) {
+      i++;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+/** Fraction of the words in a phrase that are valid Romaji (0 to 1). */
+export function romajiConfidence(phrase: string): number {
+  const words = (phrase || '').split(/[^A-Za-zĀ-ſ']+/).filter(Boolean);
+  if (words.length === 0) return 0;
+  return words.filter(isRomajiWord).length / words.length;
+}
 
 /**
- * Converts Romaji reading into Japanese Hiragana/Katakana script.
+ * Guards the Romaji line against English prose leaking into it.
+ * Requires the phrase to be Latin script and overwhelmingly made of valid morae.
+ */
+export function looksLikeRomaji(phrase: string): boolean {
+  const trimmed = (phrase || '').trim();
+  if (!trimmed || hasJapaneseScript(trimmed)) return false;
+  return romajiConfidence(trimmed) >= 0.8;
+}
+
+/** Approximate mora count of a Romaji phrase, used for length sanity checks. */
+export function romajiMoraCount(phrase: string): number {
+  const clean = normalizeRomaji(phrase || '').toLowerCase().replace(/[^a-z]/g, '');
+  const vowels = clean.replace(/[^aiueo]/g, '').length;
+  // Every mora carries a vowel except a standalone ん.
+  const standaloneN = (clean.match(/n(?![aiueoy])/g) || []).length;
+  return vowels + standaloneN;
+}
+
+/** Approximate mora count of a Japanese phrase (Kanji average ~1.8 morae each). */
+export function japaneseMoraCount(text: string): number {
+  const kana = (text.match(/[぀-ヿ]/g) || []).length;
+  const kanji = (text.match(/[㐀-䶿一-鿿]/g) || []).length;
+  return kana + kanji * 1.8;
+}
+
+/**
+ * True if a Romaji phrase is a plausible reading of a Japanese phrase, by length.
+ * Catches cases where a stray fragment is offered as the reading of a full sentence.
+ */
+export function romajiLengthMatches(romaji: string, japanese: string): boolean {
+  const expected = japaneseMoraCount(japanese);
+  if (expected === 0) return true;
+  const actual = romajiMoraCount(romaji);
+  return actual >= expected * 0.5 && actual <= expected * 2.5;
+}
+
+/**
+ * Converts a Romaji reading into Japanese Hiragana/Katakana script.
+ * Callers must gate this with `looksLikeRomaji` — it will happily transliterate
+ * English text into meaningless Kana otherwise.
  */
 export function romajiToKana(str: string): string {
   if (!str) return '';
@@ -256,13 +404,8 @@ export function romajiToKana(str: string): string {
   const convertedWords = words.map(word => {
     const lower = word.toLowerCase().trim();
     if (!lower) return word;
-    if (ROMAJI_WORD_MAP[lower]) {
-      return ROMAJI_WORD_MAP[lower];
-    }
-
-    if (ENGLISH_STOP_WORDS.has(lower) || !/^[a-z]+$/i.test(lower)) {
-      return word;
-    }
+    if (ROMAJI_WORD_MAP[lower]) return ROMAJI_WORD_MAP[lower];
+    if (!/^[a-z]+$/.test(lower)) return word;
 
     let res = '';
     let i = 0;
@@ -276,30 +419,21 @@ export function romajiToKana(str: string): string {
         continue;
       }
 
-      if (i + 2 < len) {
-        const tri = lower.slice(i, i + 3);
-        if (ROMAJI_TO_KANA[tri]) {
-          res += ROMAJI_TO_KANA[tri];
-          i += 3;
-          continue;
-        }
+      const tri = lower.slice(i, i + 3);
+      if (tri.length === 3 && ROMAJI_TO_KANA[tri]) {
+        res += ROMAJI_TO_KANA[tri];
+        i += 3;
+        continue;
       }
 
-      if (i + 1 < len) {
-        const bi = lower.slice(i, i + 2);
-        if (ROMAJI_TO_KANA[bi]) {
-          res += ROMAJI_TO_KANA[bi];
-          i += 2;
-          continue;
-        }
+      const bi = lower.slice(i, i + 2);
+      if (bi.length === 2 && ROMAJI_TO_KANA[bi]) {
+        res += ROMAJI_TO_KANA[bi];
+        i += 2;
+        continue;
       }
 
-      const uni = lower[i];
-      if (ROMAJI_TO_KANA[uni]) {
-        res += ROMAJI_TO_KANA[uni];
-      } else {
-        res += uni;
-      }
+      res += ROMAJI_TO_KANA[lower[i]] || lower[i];
       i++;
     }
 

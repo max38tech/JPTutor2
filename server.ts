@@ -62,143 +62,7 @@ function writeSyncStore(store: Record<string, any>) {
   }
 }
 
-// 1. Chat/Tutor API Endpoint
-app.post("/api/tutor/chat", async (req, res) => {
-  try {
-    const { messages, topic, userApiKey } = req.body;
-
-    // Require user-provided API key
-    const apiKey = userApiKey && userApiKey.trim() !== "" ? userApiKey.trim() : null;
-
-    if (!apiKey) {
-      return res.status(400).json({
-        error: "Gemini API key is not configured. Please set your personal Gemini API Key in the application settings to use the tutor."
-      });
-    }
-
-    const ai = new GoogleGenAI({
-      apiKey: apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        }
-      }
-    });
-
-    // Structure conversation history for Gemini API
-    // We convert the custom Message structure to Gemini contents format.
-    let chatContents = messages.map((m: any) => {
-      if (m.role === 'user') {
-        return {
-          role: 'user',
-          parts: [{ text: m.text || "" }]
-        };
-      } else {
-        // Tutor messages
-        const tutorCombinedText = `${m.japanese}\n(${m.romaji})\n[Translation: ${m.english}]`;
-        return {
-          role: 'model',
-          parts: [{ text: tutorCombinedText }]
-        };
-      }
-    });
-
-    // If conversation history is empty, populate with an initial trigger message to start the topic
-    if (chatContents.length === 0) {
-      chatContents = [{
-        role: 'user',
-        parts: [{ text: `Hello tutor! Please initiate our study and start the lesson for the topic: "${topic}". Ask an engaging opening question in Japanese to begin.` }]
-      }];
-    }
-
-    const systemInstruction = `You are an encouraging, experienced, and warm Japanese language tutor helping a language learner practice conversational Japanese. 
-The learner is practicing the topic: "${topic}".
-Your goal is to teach the student Japanese by topic, just like a supportive human language tutor.
-
-- Keep your replies concise and easy to understand for a learner (around 1-3 natural sentences).
-- If this is the start of the topic (or chat history is empty), kindly greet the user and ask an inviting open-ended question related to the topic.
-- In your response, provide the exact Japanese Kanji/Kana, its Romaji reading, and its English translation.
-- Analyze the user's input. If they made any mistakes (particles, vocabulary, grammar, pronounciation), provide a gentle, supportive correction in English inside the 'feedback' field. If their input is good, give a small tip or praise (e.g., "Great use of the particle に!").
-- Extract key common phrases or vocabulary items from this exchange that are highly useful for flashcards.`;
-
-    const modelsToTry = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"];
-    let responseText = "";
-    let lastError: any = null;
-
-    for (const modelName of modelsToTry) {
-      try {
-        console.log(`Attempting generateContent using model: ${modelName}...`);
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: chatContents,
-          config: {
-            systemInstruction: systemInstruction,
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                japanese: { 
-                  type: Type.STRING, 
-                  description: "The tutor's Japanese response using appropriate Kanji and Kana." 
-                },
-                romaji: { 
-                  type: Type.STRING, 
-                  description: "The romaji representation of the tutor's Japanese response." 
-                },
-                english: { 
-                  type: Type.STRING, 
-                  description: "The natural English translation of the tutor's Japanese response." 
-                },
-                feedback: { 
-                  type: Type.STRING, 
-                  description: "Brief, gentle feedback in English about the user's Japanese, or a helpful Japanese learning tip." 
-                },
-                commonPhrases: {
-                  type: Type.ARRAY,
-                  description: "A list of 1 to 3 key phrases or vocabulary words from this turn to save as flashcards.",
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      japanese: { type: Type.STRING, description: "Japanese word or phrase." },
-                      romaji: { type: Type.STRING, description: "Romaji pronunciation." },
-                      english: { type: Type.STRING, description: "English meaning." }
-                    },
-                    required: ["japanese", "romaji", "english"]
-                  }
-                }
-              },
-              required: ["japanese", "romaji", "english", "feedback", "commonPhrases"]
-            }
-          }
-        });
-
-        if (response.text) {
-          responseText = response.text.trim();
-          console.log(`Successfully generated content using model: ${modelName}`);
-          break;
-        }
-      } catch (err: any) {
-        console.warn(`Model ${modelName} failed. Error:`, err.message || err);
-        lastError = err;
-      }
-    }
-
-    if (!responseText) {
-      throw lastError || new Error("All tutor model fallback options are temporarily unavailable. Please retry shortly.");
-    }
-
-    const tutorResponse = JSON.parse(responseText);
-    return res.json(tutorResponse);
-
-  } catch (error: any) {
-    console.error("Tutor chat API error:", error);
-    return res.status(500).json({
-      error: error.message || "An unexpected error occurred while communicating with the tutor."
-    });
-  }
-});
-
-// 2. Devices Sync API Endpoints
+// Devices Sync API Endpoints
 // Generate a new sync pin
 app.get("/api/sync/new-code", (req, res) => {
   const code = Math.random().toString(36).substring(2, 8).toUpperCase(); // 6-digit alphanumeric code
@@ -394,52 +258,106 @@ function wsLog(msg: string) {
   }
 }
 
+// Models used to turn a spoken tutor turn into structured Japanese/Romaji/English.
+// Override with TURN_ANALYSIS_MODELS="model-a,model-b" if the defaults are
+// retired; the chain is tried in order and the first model that answers is
+// reused for the rest of the process.
+const TURN_ANALYSIS_MODELS = (process.env.TURN_ANALYSIS_MODELS || "gemini-2.5-flash,gemini-2.0-flash,gemini-2.0-flash-lite")
+  .split(",")
+  .map(m => m.trim())
+  .filter(Boolean);
+
+let workingAnalysisModel: string | null = null;
+
+const HAS_JAPANESE_SCRIPT = /[぀-ヿ㐀-䶿一-鿿]/;
+const HAS_KANJI = /[㐀-䶿一-鿿]/;
+
+const TURN_ANALYSIS_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    hasJapanesePhrase: {
+      type: Type.BOOLEAN,
+      description: "True only if the tutor actually taught or spoke a Japanese phrase in this turn."
+    },
+    japanese: {
+      type: Type.STRING,
+      description: "The target Japanese phrase in Kanji/Kana script only, e.g. お支払いはどうされますか？. No English, no Romaji. Empty string if there is none."
+    },
+    kana: {
+      type: Type.STRING,
+      description: "The full reading of the phrase in Hiragana only (no Kanji), with a single space between each word and particle, e.g. おしはらい は どう されます か."
+    },
+    romaji: {
+      type: Type.STRING,
+      description: "The complete Hepburn Romaji reading of the ENTIRE phrase, spaced by word, e.g. Oshiharai wa dou saremasu ka?. Never truncate it and never put English here."
+    },
+    english: {
+      type: Type.STRING,
+      description: "Natural English translation of the Japanese phrase only, e.g. How will you be paying?. Not a summary of the whole turn."
+    }
+  },
+  required: ["hasJapanesePhrase", "japanese", "kana", "romaji", "english"]
+};
+
 async function analyzeTurnTranscript(ai: GoogleGenAI, transcriptText: string) {
   if (!transcriptText || transcriptText.trim().length < 5) return null;
-  const prompt = `You are a Japanese language analysis assistant. Extract the target Japanese learning phrase from this spoken tutor turn statement.
+  if (!HAS_JAPANESE_SCRIPT.test(transcriptText) && !/[a-z]{3}/i.test(transcriptText)) return null;
 
-Spoken Tutor Turn: "${transcriptText}"
+  const prompt = `You are a Japanese language analysis assistant. A live Japanese tutor just spoke the turn below to a beginner student. Extract the single Japanese phrase the student is meant to learn or respond to.
 
-CRITICAL INSTRUCTIONS:
-1. "japanese": Extract ONLY the Japanese phrase in Kanji/Kana script (e.g., "お支払いはどうされますか？"). DO NOT include any English or Romaji in this field.
-2. "romaji": Provide the FULL, complete Romaji reading for the ENTIRE Japanese phrase (e.g., "Oshiharai wa dousaremasu ka?"). DO NOT truncate or omit any part of the Romaji reading.
-3. "english": Provide the English translation of the phrase (e.g., "How will you be paying?").
+Spoken tutor turn: "${transcriptText}"
 
-Return a valid JSON object matching these fields exactly:
-{
-  "japanese": "...",
-  "romaji": "...",
-  "english": "..."
-}`;
+Rules:
+- If the turn contains no Japanese phrase at all (pure English chatter), set hasJapanesePhrase to false and leave the other fields empty.
+- If the turn contains several Japanese phrases, pick the one the tutor is actively teaching.
+- "kana" and "romaji" must be complete readings of the WHOLE phrase in "japanese" — never partial, never English.`;
 
-  const modelsToTry = ["gemini-2.0-flash", "gemini-2.0-flash-lite"];
+  const chain = workingAnalysisModel
+    ? [workingAnalysisModel, ...TURN_ANALYSIS_MODELS.filter(m => m !== workingAnalysisModel)]
+    : TURN_ANALYSIS_MODELS;
 
-  for (const modelName of modelsToTry) {
+  for (const modelName of chain) {
     try {
       const result = await ai.models.generateContent({
         model: modelName,
         contents: prompt,
         config: {
           responseMimeType: "application/json",
+          responseSchema: TURN_ANALYSIS_SCHEMA,
+          temperature: 0
         }
       });
 
-      if (result.text) {
-        const parsed = JSON.parse(result.text);
-        if (parsed.japanese && parsed.japanese.trim()) {
-          wsLog(`[TurnAnalysis] Successfully analyzed turn using model ${modelName}`);
-          return {
-            japanese: parsed.japanese.trim(),
-            romaji: parsed.romaji ? parsed.romaji.trim() : "",
-            english: parsed.english ? parsed.english.trim() : ""
-          };
-        }
+      if (!result.text) continue;
+      workingAnalysisModel = modelName;
+
+      const parsed = JSON.parse(result.text);
+      const japanese = (parsed.japanese || "").trim();
+
+      if (parsed.hasJapanesePhrase === false || !HAS_JAPANESE_SCRIPT.test(japanese)) {
+        wsLog(`[TurnAnalysis] ${modelName}: no Japanese phrase in this turn`);
+        return null;
       }
+
+      const kana = (parsed.kana || "").trim();
+      const romaji = (parsed.romaji || "").trim();
+      const english = (parsed.english || "").trim();
+
+      wsLog(`[TurnAnalysis] ${modelName} -> "${japanese}" / "${romaji}"`);
+      return {
+        japanese,
+        // A "reading" that still contains Kanji is not a reading.
+        kana: kana && !HAS_KANJI.test(kana) ? kana : "",
+        // Romaji must be Latin script; the client re-validates it as well.
+        romaji: romaji && !HAS_JAPANESE_SCRIPT.test(romaji) ? romaji : "",
+        english: english && !HAS_JAPANESE_SCRIPT.test(english) ? english : ""
+      };
     } catch (err: any) {
       wsLog(`[TurnAnalysis] Model ${modelName} failed: ${err.message || err}`);
     }
   }
 
+  wsLog(`[TurnAnalysis] All models failed. Set TURN_ANALYSIS_MODELS to a model your API key can reach.`);
   return null;
 }
 
@@ -462,16 +380,6 @@ async function startServer() {
   const httpServer = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
-
-  function wsLog(msg: string) {
-    const line = `[${new Date().toISOString()}] ${msg}\n`;
-    console.log(line.trim());
-    try {
-      fs.appendFileSync(path.join(process.cwd(), "data", "ws_debug.log"), line);
-    } catch (err) {
-      // Ignore log writing errors
-    }
-  }
 
   // Listen to upgrade events on HTTP server directly to track ALL upgrade attempts
   httpServer.on("upgrade", (req, socket, head) => {
@@ -547,35 +455,38 @@ async function startServer() {
     const liveModelsChain = ["gemini-3.1-flash-live-preview", "gemini-2.0-flash-exp"];
     let lastError: any = null;
     let currentTurnTutorText = "";
+    let turnCounter = 0;
 
     const baseConfig = {
       responseModalities: [Modality.AUDIO],
       speechConfig: {
         voiceConfig: { prebuiltVoiceConfig: { voiceName: userVoice } },
       },
-      systemInstruction: `You are ${persona.name}, ${persona.title} conducting a live 1-on-1 voice lesson for a beginner or intermediate student.
+      systemInstruction: `You are ${persona.name}, ${persona.title}, teaching a live 1-on-1 voice lesson to a beginner.
 
-PERSONA & GENDER IDENTITY:
-1. YOUR NAME IS ${persona.name.toUpperCase()}. You are a ${persona.gender} native Japanese language teacher.
-2. NEVER introduce yourself as Hana or any other name if your name is ${persona.name}. When introducing yourself or asked your name, say: "My name is ${persona.name}!"
-3. Use ${persona.gender === 'male' ? 'masculine/male-appropriate' : 'feminine/female-appropriate'} phrasing when speaking Japanese.
-${persona.name === 'Taro-sensei' ? '4. Speak in a deep, low-pitched, warm male baritone voice.\n' : ''}
-GUARDRAILS & TUTOR SCOPE:
-1. STRICT TUTOR ROLE: You are STRICTLY a Japanese Language Tutor. You MUST ONLY discuss Japanese language learning, vocabulary, grammar, pronunciation, Japanese cultural etiquette for conversations, or the active lesson scenario (e.g. ordering food, hotel check-in, asking directions).
-2. OFF-TOPIC REDIRECTION: If the student asks about off-topic subjects (e.g. quantum physics, general world news, software coding, non-Japanese trivia, or general chitchat unrelated to learning Japanese), politely decline in 1 short sentence and bring the conversation back to Japanese language practice.
-3. STRICT LANGUAGE BOUNDARY: The student speaks ONLY English and Japanese. All incoming microphone audio MUST be recognized strictly as English or Japanese words.
+IDENTITY
+- Your name is ${persona.name} and you are ${persona.gender}. Asked your name, say "My name is ${persona.name}." Never give any other name.
+- Speak Japanese with ${persona.gender === 'male' ? 'masculine' : 'feminine'} phrasing.
+${persona.name === 'Taro-sensei' ? '- Use a deep, low-pitched male baritone voice.\n' : ''}
+SCOPE
+- Teach only Japanese language and the active lesson scenario. Decline anything else in one short sentence, then continue the lesson.
+- The student speaks only English and Japanese. Interpret all incoming audio as one of those two languages.
 
-CRITICAL SCRIPT & TRANSCRIPTION RULE:
-Whenever you teach or speak a Japanese phrase, you MUST output the target phrase in written Japanese Kanji/Kana script in your text response alongside its Romaji reading and English meaning!
-Example: "You can say: アメリカから来ました (Amerika kara kimashita). That means: I came from America."
-NEVER output ONLY Romaji in text without standard Japanese Kanji/Kana characters!
+BE BRIEF. Every extra word costs the student time and money.
+- Two short sentences per turn, maximum. One is usually enough.
+- No filler: no "Great question", no repeating back what the student said, no recaps, no announcing what you are about to do.
+- Never offer a menu of options or ask what the student would like to practise. You are the teacher: choose the next phrase yourself and teach it.
 
-PEDAGOGY & CONVERSATION RULES:
-1. Speak warmly and naturally out loud like a real human tutor.
-2. When teaching a phrase, say it out loud clearly in Japanese, include written Japanese Kanji/Kana in your text output, and prompt the student to repeat it.
-3. Immediately prompt the student to repeat it (e.g. "Now you try saying it!") and STOP speaking so the student can repeat the Japanese phrase. Do NOT keep speaking in English or move on automatically.
-4. When the student attempts to speak the Japanese phrase, provide encouraging feedback on their attempt.
-5. Always ask: "Are you ready to move on or would you like to practice more?" NEVER move on to a new topic until the student confirms they are ready.`,
+LESSON LOOP
+1. Say one Japanese phrase aloud, clearly, then give its English meaning. Always speak the actual Japanese words, never only the Romaji.
+2. Say "Your turn." and stop talking. Wait for the student's attempt.
+3. Grade the attempt, then either drill it again or move to the next phrase. You decide which; do not ask permission.
+
+GRADING - the student has explicitly asked you to be strict.
+- Begin every reply to an attempt with one word: "Good." or "Close." or "Not yet."
+- "Good." is only for an attempt a native speaker would understand effortlessly. Never say perfect, excellent or great unless it truly was. Praising a flawed attempt fails the student and teaches them wrong Japanese.
+- After "Close." or "Not yet.", name the single biggest error in a few words - the exact mora, vowel length, particle or word order - then say the phrase correctly once and have them try again.
+- Do not move on to a new phrase until the student produces the current one correctly.`,
       inputAudioTranscription: {},
       outputAudioTranscription: {},
       realtimeInputConfig: {
@@ -626,14 +537,19 @@ PEDAGOGY & CONVERSATION RULES:
           const fullText = currentTurnTutorText.trim();
           currentTurnTutorText = ""; // Reset for next turn
 
+          // Close the turn straight away so the message shows up immediately,
+          // then patch it once the (slower) analysis model answers.
+          const turnId = `${Date.now()}-${++turnCounter}`;
+          clientWs.send(JSON.stringify({ turnComplete: true, turnId }));
+
           if (fullText) {
-            analyzeTurnTranscript(ai, fullText).then((turnAnalysis) => {
-              clientWs.send(JSON.stringify({ turnComplete: true, turnAnalysis }));
-            }).catch(() => {
-              clientWs.send(JSON.stringify({ turnComplete: true }));
-            });
-          } else {
-            clientWs.send(JSON.stringify({ turnComplete: true }));
+            analyzeTurnTranscript(ai, fullText)
+              .then((turnAnalysis) => {
+                if (turnAnalysis && clientWs.readyState === clientWs.OPEN) {
+                  clientWs.send(JSON.stringify({ turnId, turnAnalysis }));
+                }
+              })
+              .catch((err: any) => wsLog(`[TurnAnalysis] Unexpected failure: ${err?.message || err}`));
           }
         }
         if (message.serverContent?.interrupted) {

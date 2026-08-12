@@ -10,7 +10,6 @@ export interface Message {
   romaji?: string;
   english?: string;
   text?: string; // Raw input from user (text or voice-to-text)
-  feedback?: string; // Grammar feedback on user speech
   timestamp: number;
 }
 

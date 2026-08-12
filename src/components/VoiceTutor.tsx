@@ -31,7 +31,7 @@ import { motion } from 'motion/react';
 import { speakJapanese } from '../utils/speak';
 import { getWebSocketBaseUrl, isServerConfigured } from '../utils/api';
 import { logger } from '../utils/logger';
-import { kanaToRomaji, romajiToKana, normalizeRomaji } from '../utils/romaji';
+import { parseTutorTurn, segmentJapanese, TurnAnalysis } from '../utils/transcript';
 
 const SUGGESTED_TOPICS = [
   { id: 'restaurant', emoji: '🍣', label: 'Ordering Food', detail: 'Practice ordering sushi & drinks' },
@@ -40,11 +40,6 @@ const SUGGESTED_TOPICS = [
   { id: 'intro', emoji: '🤝', label: 'Self-Introduction', detail: 'Introduce yourself to peers' },
   { id: 'shopping', emoji: '🏪', label: 'Convenience Store', detail: 'Buy snacks at a Lawson' },
 ];
-
-const segmentJapanese = (text: string): string[] => {
-  const particles = /(は|が|を|に|で|と|の|も|か|ね|よ|、|。|？|！|「|」|\s+)/g;
-  return text.split(particles).filter(segment => segment.length > 0);
-};
 
 interface VoiceTutorProps {
   settings: UserSettings;
@@ -59,116 +54,6 @@ interface VoiceTutorProps {
   onOpenLogs?: () => void;
   onConnectionStatusChange?: (connected: boolean) => void;
 }
-
-const isRomajiWord = (word: string): boolean => {
-  const clean = word.toLowerCase().replace(/[^a-z]/g, '');
-  if (!clean) return false;
-  return /^[a-z]+$/i.test(clean) && !/^(that|this|there|where|when|what|which|who|how|why|and|are|you|from|for|with|about|would|could|should|can|will|try|saying|say|place|your|name|again|move|ready)$/i.test(clean) && /[aiueo]/i.test(clean);
-};
-
-export const extractCleanJapanese = (text: string): string => {
-  if (!text) return "";
-  const cleanFormatted = text.replace(/<\/?b>/gi, '').replace(/\*\*/g, '').replace(/\*/g, '').trim();
-  
-  const japMatch = cleanFormatted.match(/JAPANESE:\s*(.*?)(?=ROMAJI:|ENGLISH:|$)/is);
-  if (japMatch && japMatch[1].trim()) {
-    return japMatch[1].trim();
-  }
-
-  // 1. Extract pure CJK / Hiragana / Katakana sequence
-  const cjkMatch = cleanFormatted.match(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303fー・～！？、。]+/g);
-  if (cjkMatch && cjkMatch.length > 0) {
-    const longest = cjkMatch.reduce((a, b) => a.length >= b.length ? a : b);
-    return longest.trim();
-  }
-
-  // 2. Extract Romaji target phrase (in quotes or after triggers)
-  const matches = cleanFormatted.match(/["']([^"']{3,})["']/g);
-  if (matches && matches.length > 0) {
-    for (let i = matches.length - 1; i >= 0; i--) {
-      const inner = matches[i].replace(/["']/g, '').trim();
-      const innerWords = inner.split(/\s+/).filter(Boolean);
-      const romajiScore = innerWords.filter(w => isRomajiWord(w)).length;
-      if (romajiScore > 0 && romajiScore >= innerWords.length / 2) {
-        const converted = romajiToKana(inner);
-        if (converted && converted !== inner) return converted;
-      }
-    }
-  }
-
-  // 3. Fallback: Search for Romaji phrase after triggers like 'you can say:', 'say:', 'saying:'
-  const triggerMatch = cleanFormatted.match(/(?:you can say|say|saying|for example)[:\s]*["']?([A-Za-z0-9\s.,?!'\-]{3,})["']?/i);
-  if (triggerMatch && triggerMatch[1]) {
-    const candidate = triggerMatch[1].replace(/[."']/g, '').trim();
-    const candidateWords = candidate.split(/\s+/).filter(Boolean);
-    const romajiScore = candidateWords.filter(w => isRomajiWord(w)).length;
-    if (romajiScore > 0) {
-      const converted = romajiToKana(candidate);
-      if (converted && converted !== candidate) return converted;
-    }
-  }
-
-  return "";
-};
-
-export const extractCleanRomaji = (romajiText: string, fullText: string, japaneseText?: string): string => {
-  const target = normalizeRomaji(romajiText || fullText || "");
-  const jap = japaneseText || extractCleanJapanese(fullText);
-
-  // 1. Explicit ROMAJI: field
-  const romMatch = target.match(/ROMAJI:\s*(.*?)(?=JAPANESE:|ENGLISH:|$)/is);
-  if (romMatch && romMatch[1].trim()) {
-    return romMatch[1].replace(/<\/?b>/gi, '').replace(/\*\*/g, '').trim();
-  }
-
-  // 2. Candidate extraction after triggers like 'you can say:', 'say:', 'saying:', or in parentheses/quotes
-  const candidates = [
-    target.match(/(?:you can say|say|saying|for example)[:\s]*["'(]?([A-Za-z0-9\s.,?!'\-]{3,})[)"']?/i)?.[1],
-    target.match(/["'\(]([A-Za-z0-9\s.,?!'\-]{3,})["'\)]/)?.[1]
-  ].filter(Boolean);
-
-  for (const rawCandidate of candidates) {
-    if (!rawCandidate) continue;
-    const cleanCand = rawCandidate.replace(/[."']/g, '').trim();
-    const words = cleanCand.split(/\s+/).filter(Boolean);
-    const romajiScore = words.filter(w => isRomajiWord(w)).length;
-    if (romajiScore > 0 && romajiScore >= words.length / 2) {
-      return cleanCand;
-    }
-  }
-
-  // 3. Fallback to kanaToRomaji if Japanese text exists
-  if (jap) {
-    const fallbackRom = kanaToRomaji(jap);
-    if (fallbackRom && fallbackRom.trim()) return fallbackRom.trim();
-  }
-
-  return 'N/A';
-};
-
-export const extractCleanEnglish = (englishText: string, fullText: string): string => {
-  const target = englishText || fullText;
-  if (!target) return "";
-  
-  const engMatch = target.match(/ENGLISH:\s*(.*?)(?=JAPANESE:|ROMAJI:|$)/is);
-  if (engMatch && engMatch[1].trim()) {
-    return engMatch[1].replace(/<\/?b>/gi, '').replace(/\*\*/g, '').trim();
-  }
-
-  const meansMatch = target.match(/(?:That means|meaning|translates to|which means),?\s*["']?([^"'.!?]+)["']?/i);
-  if (meansMatch && meansMatch[1]) {
-    return meansMatch[1].trim();
-  }
-
-  // Extract English text by stripping CJK
-  let clean = target
-    .replace(/<\/?b>/gi, '')
-    .replace(/\*\*/g, '')
-    .replace(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303fー・～！？、。]/g, '')
-    .trim();
-
-  return clean || 'Meaning';
-};
 
 export default function VoiceTutor({
   settings,
@@ -229,13 +114,12 @@ export default function VoiceTutor({
   const [modalEnglish, setModalEnglish] = useState('');
   const [selectedText, setSelectedText] = useState('');
 
-  // Handle save from direct bookmarked message
+  // Handle save from direct bookmarked message. The message fields are already
+  // parsed and validated, so they are stored as-is.
   const handleSaveToFlashcards = (japanese: string, romaji: string, english: string) => {
-    const cleanJap = extractCleanJapanese(japanese);
-    const cleanRom = extractCleanRomaji(romaji, japanese);
-    const cleanEng = extractCleanEnglish(english, japanese);
+    const trimmedJap = japanese.trim();
+    if (!trimmedJap) return;
 
-    const trimmedJap = cleanJap.trim();
     if (flashcards.some(fc => fc.japanese.trim() === trimmedJap)) {
       // Toggle off / remove
       const updated = flashcards.filter(fc => fc.japanese.trim() !== trimmedJap);
@@ -246,8 +130,8 @@ export default function VoiceTutor({
     const newCard: Flashcard = {
       id: `fc-tutor-${Date.now()}`,
       japanese: trimmedJap,
-      romaji: cleanRom.trim() || 'N/A',
-      english: cleanEng.trim() || 'Meaning',
+      romaji: romaji.trim(),
+      english: english.trim() || 'Meaning',
       topic: activeSession ? activeSession.topic : 'Conversation',
       learned: false,
       createdAt: Date.now()
@@ -278,7 +162,7 @@ export default function VoiceTutor({
     const newCard: Flashcard = {
       id: `fc-custom-${Date.now()}`,
       japanese: modalJapanese.trim(),
-      romaji: modalRomaji.trim() || 'N/A',
+      romaji: modalRomaji.trim(),
       english: modalEnglish.trim() || 'Meaning',
       topic: activeSession ? activeSession.topic : 'Personal Vocab',
       learned: false,
@@ -378,6 +262,26 @@ export default function VoiceTutor({
     }
   };
 
+  /**
+   * Applies a change to the messages of the live session. Reads and writes
+   * sessionsRef synchronously so that several WebSocket messages arriving in the
+   * same tick (turn completion followed by its analysis) cannot clobber each other.
+   */
+  const updateActiveSession = (mutate: (messages: Message[]) => Message[]) => {
+    const currentSessions = sessionsRef.current;
+    const index = currentSessions.findIndex(s => s.id === activeSessionIdRef.current);
+    if (index < 0) return;
+
+    const newSessions = [...currentSessions];
+    newSessions[index] = {
+      ...currentSessions[index],
+      messages: mutate(currentSessions[index].messages),
+      lastActiveAt: Date.now(),
+    };
+    sessionsRef.current = newSessions;
+    onUpdateSessions(newSessions);
+  };
+
   const startLiveSession = async (topicName: string) => {
     setErrorMessage(null);
 
@@ -456,19 +360,14 @@ export default function VoiceTutor({
           )
         ).slice(0, 10);
 
-        let logContext = "";
-        if (coveredSentences.length > 0 || coveredFlashcards.length > 0) {
-          logContext = `\n\nWe have previously practiced some content under this topic. Here is a log of what we already covered:`;
-          if (coveredSentences.length > 0) {
-            logContext += `\n- Sentences practiced: ${coveredSentences.map(s => `"${s}"`).join(', ')}`;
-          }
-          if (coveredFlashcards.length > 0) {
-            logContext += `\n- Saved flashcards: ${coveredFlashcards.join(', ')}`;
-          }
-          logContext += `\n\nPlease check these logs of what we covered. When you introduce yourself, ask me if there is anything specific from this list I would like to review, or if I would like to start with brand new sentences and scenarios!`;
-        }
+        // Previously covered material is sent so the tutor moves on to new
+        // phrases. It must not turn into a menu for the student to choose from.
+        const covered = [...coveredSentences, ...coveredFlashcards];
+        const logContext = covered.length > 0
+          ? `\n\nAlready practised, so teach something new instead and only revisit these if I get one wrong: ${covered.join(' / ')}`
+          : '';
 
-        const startPrompt = `Hi! Let's practice the topic: "${topicName}". I am a beginner, so I will mostly speak English. Please teach me how to say what I want to express in Japanese. Start by saying exactly "Great, let's learn to converse about the topic: ${topicName}." and then introduce yourself.${logContext}`;
+        const startPrompt = `Topic: "${topicName}". I am a beginner and will mostly speak English. Say exactly "Great, let's learn to converse about the topic: ${topicName}." then introduce yourself in one short sentence and immediately teach me the first phrase. Do not ask me what I want to practise.${logContext}`;
 
         // Tell the model about the topic immediately once connected.
         ws.send(JSON.stringify({ 
@@ -519,83 +418,34 @@ export default function VoiceTutor({
                   text: cleanUserText,
                   timestamp: Date.now()
                 };
-                const currentSessions = sessionsRef.current;
-                const sessionIndex = currentSessions.findIndex(s => s.id === activeSessionIdRef.current);
-                if (sessionIndex >= 0) {
-                  const updatedSession = { ...currentSessions[sessionIndex] };
-                  updatedSession.messages = [newUserMsg, ...updatedSession.messages];
-                  updatedSession.lastActiveAt = Date.now();
-                  const newSessions = [...currentSessions];
-                  newSessions[sessionIndex] = updatedSession;
-                  onUpdateSessions(newSessions);
-                }
+                updateActiveSession(messages => [newUserMsg, ...messages]);
               }
             }
           }
           if (msg.turnComplete) {
-            const completedText = tutorTranscriptRef.current;
-            if (completedText.trim()) {
-              let japanese = "";
-              let romaji = "";
-              let english = "";
-              
-              const cleanFormat = (str: string) => {
-                return str
-                  .replace(/<\/?b>/gi, '') // Strip <b> and </b>
-                  .replace(/\*\*/g, '')    // Strip **
-                  .replace(/\*/g, '')      // Strip *
-                  .trim();
-              };
-
-              if (msg.turnAnalysis && msg.turnAnalysis.japanese) {
-                japanese = cleanFormat(msg.turnAnalysis.japanese);
-                if (msg.turnAnalysis.romaji) romaji = cleanFormat(msg.turnAnalysis.romaji);
-                if (msg.turnAnalysis.english) english = cleanFormat(msg.turnAnalysis.english);
-              } else {
-                const japMatch = completedText.match(/JAPANESE:\s*(.*?)(?=ROMAJI:|ENGLISH:|$)/is);
-                const romMatch = completedText.match(/ROMAJI:\s*(.*?)(?=JAPANESE:|ENGLISH:|$)/is);
-                const engMatch = completedText.match(/ENGLISH:\s*(.*?)(?=JAPANESE:|ROMAJI:|$)/is);
-                
-                if (japMatch && japMatch[1].trim()) {
-                  japanese = cleanFormat(japMatch[1]);
-                  if (romMatch) romaji = cleanFormat(romMatch[1]);
-                  if (engMatch) english = cleanFormat(engMatch[1]);
-                } else {
-                  // Smart Fallback Parser for natural tutor responses
-                  japanese = extractCleanJapanese(completedText);
-                  romaji = extractCleanRomaji("", completedText, japanese);
-                  english = extractCleanEnglish("", completedText);
-                }
-              }
-              
-              // Ensure Romaji is always populated if Japanese is present
-              if (japanese && (!romaji || romaji === 'N/A')) {
-                romaji = extractCleanRomaji("", completedText, japanese);
-              }
-              
+            const completedText = tutorTranscriptRef.current.trim();
+            if (completedText) {
+              // Show the turn straight away from the transcript alone. The
+              // backend sends its structured analysis separately, keyed by
+              // turnId, and it refines this message when it arrives.
               const newMsg: Message = {
-                id: `tutor-${Date.now()}`,
+                id: `tutor-${msg.turnId || Date.now()}`,
                 role: 'tutor',
-                text: cleanFormat(completedText),
-                japanese: japanese,
-                romaji: romaji,
-                english: english,
+                text: completedText.replace(/<\/?b>/gi, '').replace(/\*/g, '').trim(),
+                ...parseTutorTurn(completedText, msg.turnAnalysis),
                 timestamp: Date.now()
               };
-              
-              const currentSessions = sessionsRef.current;
-              const sessionIndex = currentSessions.findIndex(s => s.id === activeSessionIdRef.current);
-              if (sessionIndex >= 0) {
-                const updatedSession = { ...currentSessions[sessionIndex] };
-                updatedSession.messages = [newMsg, ...updatedSession.messages];
-                updatedSession.lastActiveAt = Date.now();
-                const newSessions = [...currentSessions];
-                newSessions[sessionIndex] = updatedSession;
-                onUpdateSessions(newSessions);
-              }
+              updateActiveSession(messages => [newMsg, ...messages]);
             }
             tutorTranscriptRef.current = '';
             setCurrentTranscript('');
+          }
+          if (msg.turnAnalysis && msg.turnId && !msg.turnComplete) {
+            const targetId = `tutor-${msg.turnId}`;
+            const analysis = msg.turnAnalysis as TurnAnalysis;
+            updateActiveSession(messages =>
+              messages.map(m => (m.id === targetId ? { ...m, ...parseTutorTurn(m.text || '', analysis) } : m))
+            );
           }
           if (msg.interrupted) {
             stopAllAudio();

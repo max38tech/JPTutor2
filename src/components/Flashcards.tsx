@@ -23,25 +23,12 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { speakJapanese } from '../utils/speak';
-import { extractCleanJapanese, extractCleanRomaji, extractCleanEnglish } from './VoiceTutor';
 
 interface FlashcardsProps {
   flashcards: Flashcard[];
   settings: UserSettings;
   onUpdateFlashcards: (cards: Flashcard[]) => void;
 }
-
-const cleanJapaneseForCard = (text: string): string => {
-  return extractCleanJapanese(text);
-};
-
-const cleanRomajiForCard = (romaji: string, fullText: string): string => {
-  return extractCleanRomaji(romaji, fullText);
-};
-
-const cleanEnglishForCard = (text: string): string => {
-  return extractCleanEnglish(text, text);
-};
 
 export default function Flashcards({
   flashcards,
@@ -250,8 +237,8 @@ export default function Flashcards({
 
                   <div className="text-center space-y-3 my-auto relative max-h-[170px] overflow-y-auto no-scrollbar px-1">
                     {(() => {
-                      const cleanJap = cleanJapaneseForCard(currentPracticeCard.japanese);
-                      const cleanRom = cleanRomajiForCard(currentPracticeCard.romaji, currentPracticeCard.japanese);
+                      const cleanJap = currentPracticeCard.japanese;
+                      const cleanRom = currentPracticeCard.romaji;
                       const fontSize = cleanJap.length > 25 ? 'text-base' : cleanJap.length > 12 ? 'text-xl' : 'text-2xl';
                       return (
                         <>
@@ -271,7 +258,7 @@ export default function Flashcards({
                     <button
                       onClick={(e) => {
                         e.stopPropagation(); // Stop propagation to prevent card flipping
-                        const cleanJap = cleanJapaneseForCard(currentPracticeCard.japanese);
+                        const cleanJap = currentPracticeCard.japanese;
                         speakJapanese(cleanJap, settings.voiceRate, settings.voiceURI, settings.apiKey, settings.cardVoice);
                       }}
                       className="mx-auto mt-2 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-300 rounded-full transition-all active:scale-95 flex items-center gap-1.5 text-xs font-bold cursor-pointer border border-indigo-100 dark:border-slate-700 shadow-xs"
@@ -299,7 +286,7 @@ export default function Flashcards({
 
                   <div className="text-center space-y-2 my-auto max-h-[170px] overflow-y-auto no-scrollbar px-1">
                     {(() => {
-                      const cleanEng = cleanEnglishForCard(currentPracticeCard.english || currentPracticeCard.japanese);
+                      const cleanEng = currentPracticeCard.english || 'Meaning';
                       const fontSize = cleanEng.length > 30 ? 'text-sm' : 'text-lg';
                       return (
                         <p className={`${fontSize} font-bold text-indigo-950 dark:text-indigo-300 leading-relaxed font-sans break-words`}>
@@ -315,7 +302,7 @@ export default function Flashcards({
                     <button
                       onClick={(e) => {
                         e.stopPropagation(); // Stop propagation to prevent card flipping
-                        const cleanJap = cleanJapaneseForCard(currentPracticeCard.japanese);
+                        const cleanJap = currentPracticeCard.japanese;
                         speakJapanese(cleanJap, settings.voiceRate, settings.voiceURI, settings.apiKey, settings.cardVoice);
                       }}
                       className="mx-auto mt-2 px-3 py-1.5 bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-300 rounded-full transition-all active:scale-95 flex items-center gap-1.5 text-xs font-bold cursor-pointer border border-indigo-100 dark:border-slate-700 shadow-xs"

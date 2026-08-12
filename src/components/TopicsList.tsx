@@ -20,6 +20,7 @@ import {
   Volume2
 } from 'lucide-react';
 import { speakJapanese } from '../utils/speak';
+import { segmentJapanese } from '../utils/transcript';
 
 interface TopicsListProps {
   sessions: TopicSession[];
@@ -80,12 +81,6 @@ export default function TopicsList({
     });
   };
 
-  // Split Japanese text into clickable parts by common particles and punctuation
-  const segmentJapanese = (text: string): string[] => {
-    const particles = /(は|が|を|に|で|と|の|も|か|ね|よ|、|。|？|！|「|」|\s+)/g;
-    return text.split(particles).filter(segment => segment.length > 0);
-  };
-
   // Toggle saving full tutor message to flashcards
   const handleSaveToFlashcards = (japanese: string, romaji: string, english: string, topicName: string) => {
     const trimmedJap = japanese.trim();
@@ -99,7 +94,7 @@ export default function TopicsList({
     const newCard: Flashcard = {
       id: `fc-logs-${Date.now()}`,
       japanese: trimmedJap,
-      romaji: romaji.trim() || 'N/A',
+      romaji: romaji.trim(),
       english: english.trim() || 'Meaning',
       topic: topicName || 'Conversation Log',
       learned: false,
@@ -131,7 +126,7 @@ export default function TopicsList({
     const newCard: Flashcard = {
       id: `fc-logs-word-${Date.now()}`,
       japanese: modalJapanese.trim(),
-      romaji: modalRomaji.trim() || 'N/A',
+      romaji: modalRomaji.trim(),
       english: modalEnglish.trim() || 'Meaning',
       topic: currentViewingSession ? currentViewingSession.topic : 'Conversation Log',
       learned: false,
