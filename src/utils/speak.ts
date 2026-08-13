@@ -82,7 +82,7 @@ export function speakJapanese(
 
   // Construct TTS endpoint URL
   const serverBase = getServerBaseUrl();
-  const ttsUrl = `${serverBase}/api/tts?text=${encodeURIComponent(cleanText)}&apiKey=${encodeURIComponent(apiKey)}&voice=${encodeURIComponent(cardVoice)}`;
+  const ttsUrl = `${serverBase}/api/tts?text=${encodeURIComponent(cleanText)}&apiKey=${encodeURIComponent(apiKey)}&voice=${encodeURIComponent(cardVoice)}&rate=${encodeURIComponent(String(rate))}`;
 
   try {
     const AudioCtxClass = typeof window !== 'undefined' ? (window.AudioContext || (window as any).webkitAudioContext) : null;
@@ -97,19 +97,27 @@ export function speakJapanese(
       fetch(ttsUrl)
         .then(res => {
           if (!res.ok) throw new Error(`TTS server HTTP ${res.status}`);
-          return res.arrayBuffer();
+          // The gtx voice can't take a rate server-side; approximate it here instead
+          // of silently ignoring the setting for that one voice choice.
+          const rateAppliedServerSide = res.headers.get('X-TTS-Rate-Applied') !== 'false';
+          return res.arrayBuffer().then(buf => ({ buf, rateAppliedServerSide }));
         })
-        .then(arrayBuffer => sharedTtsAudioCtx!.decodeAudioData(arrayBuffer))
-        .then(audioBuffer => {
+        .then(({ buf, rateAppliedServerSide }) =>
+          sharedTtsAudioCtx!.decodeAudioData(buf).then(audioBuffer => ({ audioBuffer, rateAppliedServerSide }))
+        )
+        .then(({ audioBuffer, rateAppliedServerSide }) => {
           if (!sharedTtsAudioCtx) return;
-          
+
           stopTtsAudio();
 
           const source = sharedTtsAudioCtx.createBufferSource();
           source.buffer = audioBuffer;
+          if (!rateAppliedServerSide) {
+            source.playbackRate.value = rate;
+          }
           source.connect(sharedTtsAudioCtx.destination);
           currentTtsSource = source;
-          
+
           source.onended = () => {
             if (currentTtsSource === source) {
               currentTtsSource = null;
