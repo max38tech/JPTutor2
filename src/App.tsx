@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   voiceURI: '',
   liveVoice: 'Charon',
   cardVoice: 'ja-JP-KeitaNeural',
+  tutorStyle: 'efficient',
   customServerUrl: 'https://jp-tutor-backend-638340504989.asia-east1.run.app',
 };
 

@@ -325,7 +325,7 @@ export default function VoiceTutor({
       }
 
       // 3. Connect to WebSocket
-      const wsUrl = `${getWebSocketBaseUrl()}/live?apiKey=${encodeURIComponent(settings.apiKey)}&voice=${encodeURIComponent(settings.liveVoice || 'Charon')}`;
+      const wsUrl = `${getWebSocketBaseUrl()}/live?apiKey=${encodeURIComponent(settings.apiKey)}&voice=${encodeURIComponent(settings.liveVoice || 'Charon')}&style=${encodeURIComponent(settings.tutorStyle || 'efficient')}`;
       logger.addLog('info', `Connecting to WebSocket live tutor backend at: ${getWebSocketBaseUrl()}/live`);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;

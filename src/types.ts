@@ -49,6 +49,7 @@ export interface UserSettings {
   voiceURI?: string; // chosen WebSpeech API voice URI or name
   liveVoice?: string; // chosen Gemini Live AI voice (Aoede, Charon, Fenrir, Kore, Puck)
   cardVoice?: string; // chosen Microsoft Edge Neural voice for Cards & Log Speech (Nanami, Aoi, Mayu, Keita, Daichi, Naoki)
+  tutorStyle?: 'efficient' | 'balanced' | 'interactive'; // verbosity/interactivity of the live tutor; grading strictness is unaffected
   customServerUrl?: string; // custom server URL for API & WebSockets
 }
 

@@ -427,6 +427,10 @@ async function startServer() {
     const urlParams = new URLSearchParams(req.url?.split('?')[1] || '');
     const userApiKey = urlParams.get('apiKey');
     const userVoice = urlParams.get('voice') || 'Charon';
+    const requestedStyle = urlParams.get('style') || 'efficient';
+    const userStyle = (['efficient', 'balanced', 'interactive'] as const).includes(requestedStyle as any)
+      ? (requestedStyle as 'efficient' | 'balanced' | 'interactive')
+      : 'efficient';
     
     // Use user-provided API Key or fallback to container's GEMINI_API_KEY env variable
     const apiKey = userApiKey && userApiKey.trim() !== "" && userApiKey !== "undefined" && userApiKey !== "null" ? userApiKey.trim() : (process.env.GEMINI_API_KEY || null);
@@ -451,7 +455,24 @@ async function startServer() {
 
     const persona = getTutorPersona(userVoice);
 
-    wsLog(`[Connection] Connecting to Gemini Live with API Key: ${apiKey.substring(0, 6)}... (Voice: ${userVoice}, Persona: ${persona.name})`);
+    // Verbosity/interactivity only. Grading honesty (below) never changes with style -
+    // a chattier tutor that also inflates praise would undo the point of being strict.
+    const STYLE_INSTRUCTIONS: Record<typeof userStyle, string> = {
+      efficient: `STYLE - Efficient. Every extra word costs the student time and money.
+- Two short sentences per turn, maximum. One is usually enough.
+- No filler: no "Great question", no repeating back what the student said, no recaps, no announcing what you are about to do.
+- Never offer a menu of options or ask what the student would like to practise. You are the teacher: choose the next phrase yourself and teach it.`,
+      balanced: `STYLE - Balanced. The student accepts a bit more length for a bit more context.
+- Up to three or four sentences per turn. One extra sentence of "why" is welcome - a note on a particle, a quick cultural aside - but don't pad further.
+- A little warmth is fine (a short "Nice!", brief encouragement) but don't repeat the student's words back to them or recap what already happened.
+- Choose the next phrase yourself. Only ask what to practise if the student says something that genuinely calls for it.`,
+      interactive: `STYLE - Interactive. The student has chosen a richer, more expensive lesson.
+- Take the space you need: explain the grammar behind a phrase, give an extra example sentence, or ask a short follow-up question to keep the conversation going.
+- Be warm and conversational, like a human tutor who has time to chat.
+- Checking in occasionally ("Want a harder version?") is fine, but keep driving the lesson yourself - don't just wait on the student.`,
+    };
+
+    wsLog(`[Connection] Connecting to Gemini Live with API Key: ${apiKey.substring(0, 6)}... (Voice: ${userVoice}, Persona: ${persona.name}, Style: ${userStyle})`);
 
     const ai = new GoogleGenAI({
       apiKey: apiKey,
@@ -485,10 +506,7 @@ SCOPE
 - The student speaks only English and Japanese. Interpret all incoming audio as one of those two languages.
 - Exception: the exact message "[STUDENT_INTERRUPT]" is a button press, not something the student said. It is never off-topic. On seeing it, stop mid-thought, reply with only "Go ahead." and wait silently for the student to speak.
 
-BE BRIEF. Every extra word costs the student time and money.
-- Two short sentences per turn, maximum. One is usually enough.
-- No filler: no "Great question", no repeating back what the student said, no recaps, no announcing what you are about to do.
-- Never offer a menu of options or ask what the student would like to practise. You are the teacher: choose the next phrase yourself and teach it.
+${STYLE_INSTRUCTIONS[userStyle]}
 
 LESSON LOOP
 1. Say one Japanese phrase aloud, clearly, then give its English meaning. Always speak the actual Japanese words, never only the Romaji.
