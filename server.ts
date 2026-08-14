@@ -753,11 +753,17 @@ GRADING - the student has explicitly asked you to be strict.
 - "Good." is only for an attempt a native speaker would understand effortlessly. Never say perfect, excellent or great unless it truly was. Praising a flawed attempt fails the student and teaches them wrong Japanese.
 - After "Close." or "Not yet.", name the single biggest error in a few words - the exact mora, vowel length, particle or word order - then say the phrase correctly once and have them try again.
 - Do not move on to a new phrase until the student produces the current one correctly.`,
-      // Without a language hint the ASR is free to guess any language for
-      // ambiguous audio, and has been observed transcribing English speech as
-      // Korean. The lesson is strictly English/Japanese, so constrain it.
-      inputAudioTranscription: { languageHints: { languageCodes: ["en-US", "ja-JP"] } },
-      outputAudioTranscription: { languageHints: { languageCodes: ["en-US", "ja-JP"] } },
+      // REVERTED: languageHints is in the SDK's TypeScript types but doesn't
+      // appear anywhere in Google's actual Live API documentation, which only
+      // ever shows this as an empty object. Shipped it as a fix for
+      // English-transcribed-as-Korean; the very next live test got no tutor
+      // response at all (issue #9), and there's a known upstream report
+      // (google/adk-python#5542) that language constraints don't reliably
+      // work on Live API transcription anyway. Not worth the risk for a
+      // field that isn't documented to exist here - back to the
+      // known-good empty config. See that issue before trying this again.
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
       realtimeInputConfig: {
         activityHandling: ActivityHandling.NO_INTERRUPTION
       }
