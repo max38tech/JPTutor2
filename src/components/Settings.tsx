@@ -287,31 +287,6 @@ export default function Settings({
             </button>
           </div>
 
-          {/* Voice rate speed slide */}
-          <div className="space-y-2">
-            <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
-              <span className="font-bold">Flashcards & Log Audio Speed</span>
-              <span className="font-mono font-bold text-indigo-500 dark:text-indigo-300">{settings.voiceRate}x</span>
-            </div>
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 -mt-1">
-              Only affects Flashcards & Log playback. Live tutor audio always plays at natural speed.
-            </p>
-            <input
-              type="range"
-              min="0.5"
-              max="1.5"
-              step="0.05"
-              value={settings.voiceRate}
-              onChange={handleRateChange}
-              className="w-full accent-indigo-600 cursor-pointer bg-slate-100 dark:bg-slate-800 rounded-lg h-2"
-            />
-            <div className="flex justify-between text-[9px] text-slate-400">
-              <span>Slower</span>
-              <span>Default (1.0x)</span>
-              <span>Faster</span>
-            </div>
-          </div>
-
           {/* Voice Selection Dropdown */}
           <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="flex justify-between items-center">
@@ -430,8 +405,35 @@ export default function Settings({
             </p>
           </div>
 
-          {/* Card & Log Speech Voice Selection */}
+          {/* Voice rate speed slider - kept directly above the voice picker
+              below since both settings control the same Flashcards & Log
+              audio and belong together. */}
           <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+              <span className="font-bold">Flashcards & Log Audio Speed</span>
+              <span className="font-mono font-bold text-indigo-500 dark:text-indigo-300">{settings.voiceRate}x</span>
+            </div>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 -mt-1">
+              Only affects Flashcards & Log playback. Live tutor audio always plays at natural speed.
+            </p>
+            <input
+              type="range"
+              min="0.5"
+              max="1.5"
+              step="0.05"
+              value={settings.voiceRate}
+              onChange={handleRateChange}
+              className="w-full accent-indigo-600 cursor-pointer bg-slate-100 dark:bg-slate-800 rounded-lg h-2"
+            />
+            <div className="flex justify-between text-[9px] text-slate-400">
+              <span>Slower</span>
+              <span>Default (1.0x)</span>
+              <span>Faster</span>
+            </div>
+          </div>
+
+          {/* Card & Log Speech Voice Selection */}
+          <div className="space-y-2">
             <div className="flex justify-between items-center">
               <span className="font-bold text-slate-700 dark:text-slate-300">Flashcards & Log Audio Voice</span>
               <button

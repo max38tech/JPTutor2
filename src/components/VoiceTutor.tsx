@@ -33,6 +33,13 @@ import { getWebSocketBaseUrl, isServerConfigured } from '../utils/api';
 import { logger } from '../utils/logger';
 import { parseTutorTurn, segmentJapanese, TurnAnalysis } from '../utils/transcript';
 
+// How long to keep a WebSocket open after the user ends/leaves a session
+// before actually closing it. Turn analysis runs async server-side after
+// turnComplete and has been observed taking 5-14s with Qwen; closing the
+// socket immediately drops that patch because the server only delivers it
+// while the client socket is still OPEN.
+const ANALYSIS_GRACE_MS = 20000;
+
 const SUGGESTED_TOPICS = [
   { id: 'restaurant', emoji: '🍣', label: 'Ordering Food', detail: 'Practice ordering sushi & drinks' },
   { id: 'directions', emoji: '🗺️', label: 'Asking for Directions', detail: 'Navigate Kyoto streets safely' },
@@ -80,15 +87,13 @@ export default function VoiceTutor({
   const wsRef = useRef<WebSocket | null>(null);
   const sessionsRef = useRef(sessions);
   const isMicMutedRef = useRef(isMicMuted);
-  const activeSessionIdRef = useRef(activeSessionId);
   const playingSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const tutorTranscriptRef = useRef<string>('');
-  // WebSocket.close() is async - onclose fires later, sometimes after the
-  // user has already navigated back to the topic list. Without this flag,
-  // that stale close event's error banner renders on the home screen instead
-  // of being suppressed, since close codes alone aren't a reliable signal of
-  // "the user did this on purpose" across browsers/networks.
-  const intentionalCloseRef = useRef(false);
+  // Tracks which exact WebSocket object an intentional close applies to
+  // (rather than a plain boolean) so an old, still-lingering connection
+  // (see ANALYSIS_GRACE_MS) can never leak its "this was on purpose" state
+  // onto a newer connection the user has since started.
+  const intentionalCloseRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -97,10 +102,6 @@ export default function VoiceTutor({
   useEffect(() => {
     isMicMutedRef.current = isMicMuted;
   }, [isMicMuted]);
-
-  useEffect(() => {
-    activeSessionIdRef.current = activeSessionId;
-  }, [activeSessionId]);
 
   useEffect(() => {
     onConnectionStatusChange?.(isConnected);
@@ -269,13 +270,18 @@ export default function VoiceTutor({
   };
 
   /**
-   * Applies a change to the messages of the live session. Reads and writes
-   * sessionsRef synchronously so that several WebSocket messages arriving in the
-   * same tick (turn completion followed by its analysis) cannot clobber each other.
+   * Applies a change to the messages of a specific live session. Reads and
+   * writes sessionsRef synchronously so that several WebSocket messages
+   * arriving in the same tick (turn completion followed by its analysis)
+   * cannot clobber each other. Takes the target sessionId explicitly
+   * (captured once per connection) rather than reading "whatever session is
+   * currently on screen" - the user can navigate away or start a new session
+   * while a previous turn's analysis is still in flight, and that patch must
+   * still land on the session it belongs to, not the current screen.
    */
-  const updateActiveSession = (mutate: (messages: Message[]) => Message[]) => {
+  const updateSessionMessages = (sessionId: string, mutate: (messages: Message[]) => Message[]) => {
     const currentSessions = sessionsRef.current;
-    const index = currentSessions.findIndex(s => s.id === activeSessionIdRef.current);
+    const index = currentSessions.findIndex(s => s.id === sessionId);
     if (index < 0) return;
 
     const newSessions = [...currentSessions];
@@ -316,18 +322,20 @@ export default function VoiceTutor({
       streamRef.current = stream;
       setIsMicrophoneActive(true);
 
-      // Create new session object if it doesn't exist
+      // Create new session object if it doesn't exist. Captured once as a
+      // local const so every handler on this connection targets the same
+      // session regardless of what onSetActiveSessionId does later.
+      const sessionId = activeSessionId || `session-${Date.now()}`;
       if (!activeSessionId) {
-        const newSessionId = `session-${Date.now()}`;
         const newSession: TopicSession = {
-          id: newSessionId,
+          id: sessionId,
           topic: topicName,
           messages: [],
           createdAt: Date.now(),
           lastActiveAt: Date.now(),
         };
         onUpdateSessions([newSession, ...sessions]);
-        onSetActiveSessionId(newSessionId);
+        onSetActiveSessionId(sessionId);
       }
 
       // 3. Connect to WebSocket
@@ -424,7 +432,7 @@ export default function VoiceTutor({
                   text: cleanUserText,
                   timestamp: Date.now()
                 };
-                updateActiveSession(messages => [newUserMsg, ...messages]);
+                updateSessionMessages(sessionId, messages => [newUserMsg, ...messages]);
               }
             }
           }
@@ -441,7 +449,7 @@ export default function VoiceTutor({
                 ...parseTutorTurn(completedText, msg.turnAnalysis),
                 timestamp: Date.now()
               };
-              updateActiveSession(messages => [newMsg, ...messages]);
+              updateSessionMessages(sessionId, messages => [newMsg, ...messages]);
             }
             tutorTranscriptRef.current = '';
             setCurrentTranscript('');
@@ -449,7 +457,7 @@ export default function VoiceTutor({
           if (msg.turnAnalysis && msg.turnId && !msg.turnComplete) {
             const targetId = `tutor-${msg.turnId}`;
             const analysis = msg.turnAnalysis as TurnAnalysis;
-            updateActiveSession(messages =>
+            updateSessionMessages(sessionId, messages =>
               messages.map(m => (m.id === targetId ? { ...m, ...parseTutorTurn(m.text || '', analysis) } : m))
             );
           }
@@ -466,6 +474,12 @@ export default function VoiceTutor({
 
       ws.onerror = (e: Event) => {
         console.error("WebSocket Error Event:", e);
+        if (wsRef.current !== ws) {
+          // A newer session's connection has already taken over; this stale
+          // connection's error doesn't apply to anything on screen anymore.
+          logger.addLog('info', 'Ignoring error from a superseded live tutor connection.');
+          return;
+        }
         const errDetails = {
           isTrusted: e.isTrusted,
           type: e.type,
@@ -473,15 +487,28 @@ export default function VoiceTutor({
           url: ws.url ? ws.url.split('?')[0] : 'unknown'
         };
         logger.addLog('error', `WebSocket Error event received! Details: ${JSON.stringify(errDetails)}. State: ${ws.readyState}`);
-        setErrorMessage("Connection error to live tutor. Tap Settings -> Diagnostics Panel -> Backend Server Logs to investigate.");
+        if (intentionalCloseRef.current !== ws) {
+          setErrorMessage("Connection error to live tutor. Tap Settings -> Diagnostics Panel -> Backend Server Logs to investigate.");
+        }
         cleanupLiveSession();
       };
 
       ws.onclose = (e: CloseEvent) => {
         console.log("WebSocket Closed. Code:", e.code, "Reason:", e.reason);
 
-        if (intentionalCloseRef.current) {
-          intentionalCloseRef.current = false;
+        const wasIntentional = intentionalCloseRef.current === ws;
+        if (wasIntentional) {
+          intentionalCloseRef.current = null;
+        }
+
+        if (wsRef.current !== ws) {
+          // A newer session's connection has already taken over; this was
+          // just the previous connection lingering out its grace period.
+          logger.addLog('info', `Superseded live tutor connection closed. Code: ${e.code}`);
+          return;
+        }
+
+        if (wasIntentional) {
           logger.addLog('info', `WebSocket connection closed (user-initiated). Code: ${e.code}`);
           setErrorMessage(null);
           cleanupLiveSession();
@@ -522,7 +549,11 @@ export default function VoiceTutor({
     }
   };
 
-  const cleanupLiveSession = () => {
+  // closeSocket=false leaves the WebSocket connected (see endTopic) so a
+  // turn analysis response already in flight server-side still has a chance
+  // to arrive and patch the stored transcript, even after the user has left
+  // this screen.
+  const cleanupLiveSession = (closeSocket: boolean = true) => {
     stopAllAudio();
     if (processorRef.current && inputAudioCtxRef.current) {
       processorRef.current.disconnect();
@@ -539,7 +570,7 @@ export default function VoiceTutor({
       audioContextRef.current.close();
       audioContextRef.current = null;
     }
-    if (wsRef.current) {
+    if (closeSocket && wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
@@ -549,8 +580,23 @@ export default function VoiceTutor({
   };
 
   const endTopic = () => {
-    intentionalCloseRef.current = true;
-    cleanupLiveSession();
+    const ws = wsRef.current;
+    if (ws) intentionalCloseRef.current = ws;
+    // Stop the mic/audio and navigate away immediately, but keep the socket
+    // itself open for a grace period - the server keeps analyzing the last
+    // turn after turnComplete and would otherwise have nowhere to deliver
+    // that result (see ANALYSIS_GRACE_MS).
+    cleanupLiveSession(false);
+    if (ws) {
+      setTimeout(() => {
+        if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+          ws.close();
+        }
+        if (wsRef.current === ws) {
+          wsRef.current = null;
+        }
+      }, ANALYSIS_GRACE_MS);
+    }
     onSetActiveSessionId(null);
   };
 
