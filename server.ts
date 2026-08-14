@@ -176,6 +176,12 @@ app.get("/api/tts", async (req, res) => {
       .replace(/<\/?b>/gi, '')
       .trim();
 
+    // Speech rate as a multiplier (1.0 = normal), clamped to what sounds usable,
+    // converted to the SSML prosody percentage node-edge-tts expects.
+    const requestedRate = parseFloat(req.query.rate as string);
+    const rateMultiplier = Number.isFinite(requestedRate) ? Math.min(2, Math.max(0.5, requestedRate)) : 1;
+    const ssmlRate = `${rateMultiplier >= 1 ? '+' : ''}${Math.round((rateMultiplier - 1) * 100)}%`;
+
     if (requestedVoice === 'gtx' || requestedVoice === 'ja-JP-gtx') {
       console.log(`[TTS API] Generating Google HD Mobile TTS for: "${cleanText}"`);
       const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=gtx&q=${encodeURIComponent(cleanText)}`;
@@ -191,6 +197,9 @@ app.get("/api/tts", async (req, res) => {
         }
         res.setHeader("Content-Type", proxyResponse.headers["content-type"] || "audio/mpeg");
         res.setHeader("Cache-Control", "public, max-age=86400");
+        // Google's translate_tts proxy has no rate control; tell the client to
+        // approximate it client-side instead of silently ignoring the setting.
+        res.setHeader("X-TTS-Rate-Applied", "false");
         proxyResponse.pipe(res);
       }).on("error", (e) => {
         console.error("TTS proxy network error:", e);
@@ -215,7 +224,8 @@ app.get("/api/tts", async (req, res) => {
       const tts = new EdgeTTS({
         voice: edgeVoice,
         lang: 'ja-JP',
-        outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
+        outputFormat: 'audio-24khz-48kbitrate-mono-mp3',
+        rate: ssmlRate
       });
 
       await tts.ttsPromise(cleanText, tmpFilePath);
@@ -227,14 +237,16 @@ app.get("/api/tts", async (req, res) => {
         console.log(`[TTS API] Microsoft Edge Neural TTS (${edgeVoice}) generated successfully (${audioBuffer.length} bytes)`);
         res.setHeader("Content-Type", "audio/mpeg");
         res.setHeader("Cache-Control", "public, max-age=86400");
+        res.setHeader("X-TTS-Rate-Applied", "true");
         return res.send(audioBuffer);
       }
     } catch (err: any) {
       console.warn(`[TTS API] Microsoft Edge Neural TTS failed: ${err.message || err}, falling back to gtx proxy`);
-      // Fallback proxy logic if Edge fails
+      // Fallback proxy logic if Edge fails. Same rate caveat as the explicit gtx path above.
       const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=gtx&q=${encodeURIComponent(cleanText)}`;
       https.get(ttsUrl, { headers: { "User-Agent": "AndroidTranslate/7.16.0" } }, (proxyResponse) => {
         res.setHeader("Content-Type", proxyResponse.headers["content-type"] || "audio/mpeg");
+        res.setHeader("X-TTS-Rate-Applied", "false");
         proxyResponse.pipe(res);
       });
     }
