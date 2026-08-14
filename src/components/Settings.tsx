@@ -353,12 +353,44 @@ export default function Settings({
               onChange={handleLiveVoiceChange}
               className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 dark:text-slate-100 font-semibold text-xs cursor-pointer"
             >
-              <option value="Aoede">Aoede (Hana-sensei - Clear Female)</option>
-              <option value="Kore">Kore (Yuki-sensei - Soft Female)</option>
-              <option value="Puck">Puck (Ken-sensei - Friendly Male)</option>
-              <option value="Fenrir">Fenrir (Hiro-sensei - Energetic Male)</option>
-              <option value="Charon">Charon (Taro-sensei - Deep Male)</option>
+              <optgroup label="Featured">
+                <option value="Aoede">Aoede (Hana-sensei - Clear Female)</option>
+                <option value="Kore">Kore (Yuki-sensei - Soft Female)</option>
+                <option value="Puck">Puck (Ken-sensei - Friendly Male)</option>
+                <option value="Fenrir">Fenrir (Hiro-sensei - Energetic Male)</option>
+                <option value="Charon">Charon (Taro-sensei - Deep Male)</option>
+              </optgroup>
+              <optgroup label="More Voices">
+                <option value="Achernar">Achernar (Mei-sensei - Soft Female)</option>
+                <option value="Achird">Achird (Sora-sensei - Friendly Male)</option>
+                <option value="Algenib">Algenib (Ryo-sensei - Gravelly Male)</option>
+                <option value="Algieba">Algieba (Daiki-sensei - Smooth Male)</option>
+                <option value="Alnilam">Alnilam (Kaito-sensei - Firm Male)</option>
+                <option value="Autonoe">Autonoe (Sakura-sensei - Bright Female)</option>
+                <option value="Callirrhoe">Callirrhoe (Yui-sensei - Easy-going Female)</option>
+                <option value="Despina">Despina (Nana-sensei - Smooth Female)</option>
+                <option value="Enceladus">Enceladus (Kai-sensei - Breathy)</option>
+                <option value="Erinome">Erinome (Akari-sensei - Clear Female)</option>
+                <option value="Gacrux">Gacrux (Rin-sensei - Mature Female)</option>
+                <option value="Iapetus">Iapetus (Shun-sensei - Clear Male)</option>
+                <option value="Laomedeia">Laomedeia (Miku-sensei - Upbeat Female)</option>
+                <option value="Leda">Leda (Emi-sensei - Youthful Female)</option>
+                <option value="Orus">Orus (Takumi-sensei - Firm Male)</option>
+                <option value="Pulcherrima">Pulcherrima (Nozomi-sensei - Forward Female)</option>
+                <option value="Rasalgethi">Rasalgethi (Kenji-sensei - Informative Male)</option>
+                <option value="Sadachbia">Sadachbia (Ren-sensei - Lively Male)</option>
+                <option value="Sadaltager">Sadaltager (Yuto-sensei - Knowledgeable Male)</option>
+                <option value="Schedar">Schedar (Sota-sensei - Even Male)</option>
+                <option value="Sulafat">Sulafat (Aya-sensei - Warm Female)</option>
+                <option value="Umbriel">Umbriel (Riku-sensei - Easy-going Male)</option>
+                <option value="Vindemiatrix">Vindemiatrix (Riko-sensei - Gentle Female)</option>
+                <option value="Zephyr">Zephyr (Sayuri-sensei - Bright Female)</option>
+                <option value="Zubenelgenubi">Zubenelgenubi (Jin-sensei - Casual Male)</option>
+              </optgroup>
             </select>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500">
+              Gender for the Featured voices is deliberate; for the rest it's a best-effort guess from third-party sources. If one sounds off, let us know via Report Bug and we'll fix the label.
+            </p>
           </div>
 
           {/* Tutor Style Selection */}

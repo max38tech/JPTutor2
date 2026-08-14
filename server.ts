@@ -160,12 +160,14 @@ function checkReportCooldown(req: any, type: "bug" | "feature"): string | null {
 const MAX_SCREENSHOTS = 3;
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
 
-// Uploads data-URL screenshots to Supabase Storage and returns their public
-// URLs, so they can be embedded as markdown images in the GitHub issue body.
-// Best-effort: screenshot upload failures are logged but never block the bug
-// report itself from going through, and if Supabase isn't configured at all
-// this just returns an empty list.
-async function uploadScreenshots(screenshots: string[]): Promise<string[]> {
+// Uploads data-URL screenshots to Supabase Storage (one shared bucket, kept
+// apart by folder prefix) and returns their public URLs. Used by both the
+// bug report (folder "bug-reports", embedded as markdown images in the
+// GitHub issue) and the feature request form (folder "feature-requests",
+// stored as a URL array alongside the request). Best-effort: upload failures
+// are logged but never block the report itself from going through, and if
+// Supabase isn't configured at all this just returns an empty list.
+async function uploadScreenshots(screenshots: string[], folder: "bug-reports" | "feature-requests"): Promise<string[]> {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !supabaseKey || !screenshots?.length) return [];
@@ -180,9 +182,9 @@ async function uploadScreenshots(screenshots: string[]): Promise<string[]> {
       if (buffer.length > MAX_SCREENSHOT_BYTES) continue;
 
       const ext = mimeType.split("/")[1] || "jpg";
-      const path = `bug-reports/${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const path = `${folder}/${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
-      const upRes = await fetch(`${supabaseUrl}/storage/v1/object/bug-report-screenshots/${path}`, {
+      const upRes = await fetch(`${supabaseUrl}/storage/v1/object/report-screenshots/${path}`, {
         method: "POST",
         headers: {
           apikey: supabaseKey,
@@ -193,7 +195,7 @@ async function uploadScreenshots(screenshots: string[]): Promise<string[]> {
       });
 
       if (upRes.ok) {
-        urls.push(`${supabaseUrl}/storage/v1/object/public/bug-report-screenshots/${path}`);
+        urls.push(`${supabaseUrl}/storage/v1/object/public/report-screenshots/${path}`);
       } else {
         wsLog(`[Report] Screenshot upload failed: ${upRes.status} ${await upRes.text()}`);
       }
@@ -230,7 +232,7 @@ app.post("/api/report/bug", async (req, res) => {
       return str.length > max ? `... (truncated) ...\n${str.slice(-max)}` : str;
     };
 
-    const screenshotUrls = await uploadScreenshots(Array.isArray(screenshots) ? screenshots : []);
+    const screenshotUrls = await uploadScreenshots(Array.isArray(screenshots) ? screenshots : [], "bug-reports");
     const screenshotsSection = screenshotUrls.length
       ? ["", "---", ...screenshotUrls.map((url, i) => `![screenshot ${i + 1}](${url})`)]
       : [];
@@ -297,11 +299,13 @@ app.post("/api/report/feature", async (req, res) => {
       return res.status(501).json({ error: "Feature requests are not configured on the server yet." });
     }
 
-    const { description, deviceInfo, appVersion } = req.body || {};
+    const { description, deviceInfo, appVersion, screenshots } = req.body || {};
     const cleanDescription = String(description || "").trim().slice(0, 2000);
     if (!cleanDescription) {
       return res.status(400).json({ error: "A description of the feature is required." });
     }
+
+    const screenshotUrls = await uploadScreenshots(Array.isArray(screenshots) ? screenshots : [], "feature-requests");
 
     const sbRes = await fetch(`${supabaseUrl}/rest/v1/feature_requests`, {
       method: "POST",
@@ -315,6 +319,7 @@ app.post("/api/report/feature", async (req, res) => {
         description: cleanDescription,
         device_info: String(deviceInfo || "").slice(0, 300),
         app_version: String(appVersion || "").slice(0, 50),
+        screenshot_urls: screenshotUrls.length ? screenshotUrls : null,
       }),
     });
 
@@ -676,12 +681,44 @@ async function startServer() {
       return;
     }
 
+    // Full list of the Live API's 30 prebuilt voices. Gender for the 5
+    // original entries was deliberately chosen; gender for the other 25 comes
+    // from aggregated third-party sources (Google's own docs were unreachable
+    // from this environment) - reasonably confident, but if one sounds off
+    // after trying it, that's why.
     const getTutorPersona = (voice: string) => {
       switch (voice) {
         case 'Charon': return { name: 'Taro-sensei', gender: 'male', title: 'a deep, low-pitched male Japanese tutor with a warm baritone voice' };
         case 'Fenrir': return { name: 'Hiro-sensei', gender: 'male', title: 'an energetic male Japanese tutor' };
         case 'Puck': return { name: 'Ken-sensei', gender: 'male', title: 'an encouraging male Japanese tutor' };
         case 'Kore': return { name: 'Yuki-sensei', gender: 'female', title: 'a gentle female Japanese tutor' };
+        case 'Achird': return { name: 'Sora-sensei', gender: 'male', title: 'a friendly male Japanese tutor' };
+        case 'Algenib': return { name: 'Ryo-sensei', gender: 'male', title: 'a gravelly male Japanese tutor' };
+        case 'Algieba': return { name: 'Daiki-sensei', gender: 'male', title: 'a smooth male Japanese tutor' };
+        case 'Alnilam': return { name: 'Kaito-sensei', gender: 'male', title: 'a firm male Japanese tutor' };
+        case 'Iapetus': return { name: 'Shun-sensei', gender: 'male', title: 'a clear male Japanese tutor' };
+        case 'Orus': return { name: 'Takumi-sensei', gender: 'male', title: 'a firm male Japanese tutor' };
+        case 'Rasalgethi': return { name: 'Kenji-sensei', gender: 'male', title: 'an informative male Japanese tutor' };
+        case 'Sadachbia': return { name: 'Ren-sensei', gender: 'male', title: 'a lively male Japanese tutor' };
+        case 'Sadaltager': return { name: 'Yuto-sensei', gender: 'male', title: 'a knowledgeable male Japanese tutor' };
+        case 'Schedar': return { name: 'Sota-sensei', gender: 'male', title: 'an even male Japanese tutor' };
+        case 'Umbriel': return { name: 'Riku-sensei', gender: 'male', title: 'an easy-going male Japanese tutor' };
+        case 'Zubenelgenubi': return { name: 'Jin-sensei', gender: 'male', title: 'a casual male Japanese tutor' };
+        case 'Achernar': return { name: 'Mei-sensei', gender: 'female', title: 'a soft female Japanese tutor' };
+        case 'Autonoe': return { name: 'Sakura-sensei', gender: 'female', title: 'a bright female Japanese tutor' };
+        case 'Callirrhoe': return { name: 'Yui-sensei', gender: 'female', title: 'an easy-going female Japanese tutor' };
+        case 'Despina': return { name: 'Nana-sensei', gender: 'female', title: 'a smooth female Japanese tutor' };
+        case 'Erinome': return { name: 'Akari-sensei', gender: 'female', title: 'a clear female Japanese tutor' };
+        case 'Gacrux': return { name: 'Rin-sensei', gender: 'female', title: 'a mature female Japanese tutor' };
+        case 'Laomedeia': return { name: 'Miku-sensei', gender: 'female', title: 'an upbeat female Japanese tutor' };
+        case 'Leda': return { name: 'Emi-sensei', gender: 'female', title: 'a youthful female Japanese tutor' };
+        case 'Pulcherrima': return { name: 'Nozomi-sensei', gender: 'female', title: 'a forward female Japanese tutor' };
+        case 'Sulafat': return { name: 'Aya-sensei', gender: 'female', title: 'a warm female Japanese tutor' };
+        case 'Vindemiatrix': return { name: 'Riko-sensei', gender: 'female', title: 'a gentle female Japanese tutor' };
+        case 'Zephyr': return { name: 'Sayuri-sensei', gender: 'female', title: 'a bright female Japanese tutor' };
+        // Gender data for Enceladus was contradictory across sources; defaults to neutral
+        // phrasing rather than risk asserting the wrong one.
+        case 'Enceladus': return { name: 'Kai-sensei', gender: 'neutral', title: 'a breathy Japanese tutor' };
         case 'Aoede':
         default:
           return { name: 'Hana-sensei', gender: 'female', title: 'an encouraging female Japanese tutor' };
@@ -733,8 +770,8 @@ async function startServer() {
       systemInstruction: `You are ${persona.name}, ${persona.title}, teaching a live 1-on-1 voice lesson to a beginner.
 
 IDENTITY
-- Your name is ${persona.name} and you are ${persona.gender}. Asked your name, say "My name is ${persona.name}." Never give any other name.
-- Speak Japanese with ${persona.gender === 'male' ? 'masculine' : 'feminine'} phrasing.
+- Your name is ${persona.name}${persona.gender !== 'neutral' ? ` and you are ${persona.gender}` : ''}. Asked your name, say "My name is ${persona.name}." Never give any other name.
+- Speak Japanese with ${persona.gender === 'male' ? 'masculine' : persona.gender === 'female' ? 'feminine' : 'natural, standard'} phrasing.
 ${persona.name === 'Taro-sensei' ? '- Use a deep, low-pitched male baritone voice.\n' : ''}
 SCOPE
 - Teach only Japanese language and the active lesson scenario. Decline anything else in one short sentence, then continue the lesson.

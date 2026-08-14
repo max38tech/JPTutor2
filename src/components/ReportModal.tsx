@@ -133,7 +133,7 @@ export default function ReportModal({ isOpen, onClose, initialMode = 'bug' }: Re
         const res = await fetch(`${getServerBaseUrl()}/api/report/feature`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ description: trimmed, deviceInfo: deviceInfo() }),
+          body: JSON.stringify({ description: trimmed, deviceInfo: deviceInfo(), screenshots }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to submit feature request.');
@@ -233,42 +233,40 @@ export default function ReportModal({ isOpen, onClose, initialMode = 'bug' }: Re
               </p>
             </div>
 
-            {mode === 'bug' && (
-              <div className="space-y-1.5">
-                <label className="font-bold text-slate-600 dark:text-slate-400 block">
-                  Screenshots (optional)
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {screenshots.map((src, i) => (
-                    <div key={i} className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800">
-                      <img src={src} alt={`Screenshot ${i + 1}`} className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => removeScreenshot(i)}
-                        className="absolute top-0 right-0 bg-slate-950/70 hover:bg-rose-600 text-white p-0.5 rounded-bl-lg cursor-pointer"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                  {screenshots.length < MAX_SCREENSHOTS && (
-                    <label className="w-14 h-14 rounded-lg border-2 border-dashed border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 hover:text-indigo-500 hover:border-indigo-300 cursor-pointer transition-colors">
-                      <Camera className="w-5 h-5" />
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={handleScreenshotSelect}
-                        className="hidden"
-                      />
-                    </label>
-                  )}
-                </div>
-                {screenshotError && (
-                  <p className="text-[10px] text-rose-500">{screenshotError}</p>
+            <div className="space-y-1.5">
+              <label className="font-bold text-slate-600 dark:text-slate-400 block">
+                Screenshots (optional)
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {screenshots.map((src, i) => (
+                  <div key={i} className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800">
+                    <img src={src} alt={`Screenshot ${i + 1}`} className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeScreenshot(i)}
+                      className="absolute top-0 right-0 bg-slate-950/70 hover:bg-rose-600 text-white p-0.5 rounded-bl-lg cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+                {screenshots.length < MAX_SCREENSHOTS && (
+                  <label className="w-14 h-14 rounded-lg border-2 border-dashed border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 hover:text-indigo-500 hover:border-indigo-300 cursor-pointer transition-colors">
+                    <Camera className="w-5 h-5" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleScreenshotSelect}
+                      className="hidden"
+                    />
+                  </label>
                 )}
               </div>
-            )}
+              {screenshotError && (
+                <p className="text-[10px] text-rose-500">{screenshotError}</p>
+              )}
+            </div>
 
             {submit.status === 'error' && (
               <div className="flex items-start gap-2 p-2.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/30 text-rose-600 dark:text-rose-400 rounded-xl">
