@@ -464,19 +464,52 @@ function wsLog(msg: string) {
   }
 }
 
-// Models used to turn a spoken tutor turn into structured Japanese/Romaji/English.
-// Override with TURN_ANALYSIS_MODELS="model-a,model-b" if the defaults are
-// retired; the chain is tried in order and the first model that answers is
-// reused for the rest of the process.
+// Preferred models to try first, in order. Override with
+// TURN_ANALYSIS_MODELS="model-a,model-b" for a quick pin. This list WILL go
+// stale as Google retires models (it already has once - gemini-2.5-flash,
+// gemini-2.0-flash and gemini-2.0-flash-lite were all confirmed 404
+// "no longer available" in production despite being the previous default).
+// Rather than requiring a code change + redeploy every time that happens,
+// discoverAnalysisModels() below queries the API key's actually-available
+// models at runtime once every preferred model fails, and that discovery
+// result becomes the new preference for the rest of the process.
 const TURN_ANALYSIS_MODELS = (process.env.TURN_ANALYSIS_MODELS || "gemini-2.5-flash,gemini-2.0-flash,gemini-2.0-flash-lite")
   .split(",")
   .map(m => m.trim())
   .filter(Boolean);
 
 let workingAnalysisModel: string | null = null;
+let discoveredAnalysisModels: string[] | null = null;
 
 const HAS_JAPANESE_SCRIPT = /[぀-ヿ㐀-䶿一-鿿]/;
 const HAS_KANJI = /[㐀-䶿一-鿿]/;
+
+// Queries which models this API key can actually reach right now and support
+// plain text generateContent, preferring flash-tier models (this call is a
+// short JSON extraction, not something that needs a flagship model) and
+// excluding Live/embedding/image/video variants that aren't a fit here.
+// Cached for the process lifetime - a Cloud Run instance that's found a
+// working model doesn't need to keep re-querying the model list.
+async function discoverAnalysisModels(ai: GoogleGenAI): Promise<string[]> {
+  if (discoveredAnalysisModels) return discoveredAnalysisModels;
+  try {
+    const pager = await ai.models.list({ config: { queryBase: true, pageSize: 100 } });
+    const candidates: string[] = [];
+    for await (const model of pager) {
+      const name = (model.name || "").replace(/^models\//, "");
+      if (!name || !(model.supportedActions || []).includes("generateContent")) continue;
+      if (/embedding|imagen|image|video|tts|vision-only|-live-|-live$/i.test(name)) continue;
+      candidates.push(name);
+    }
+    candidates.sort((a, b) => Number(b.includes("flash")) - Number(a.includes("flash")));
+    discoveredAnalysisModels = candidates;
+    wsLog(`[TurnAnalysis] Live model discovery found ${candidates.length}: ${candidates.slice(0, 6).join(", ")}${candidates.length > 6 ? ", ..." : ""}`);
+    return candidates;
+  } catch (err: any) {
+    wsLog(`[TurnAnalysis] Live model discovery failed: ${err.message || err}`);
+    return [];
+  }
+}
 
 // NOTE: this deliberately does NOT use responseSchema. An earlier version
 // added one (with a boolean field) and it was never actually verified against
@@ -484,6 +517,41 @@ const HAS_KANJI = /[㐀-䶿一-鿿]/;
 // from the older, schema-less version. responseMimeType + a precisely
 // specified prompt is the proven-working pattern; don't reintroduce a schema
 // here without testing it against a real API key first.
+async function tryAnalysisModel(ai: GoogleGenAI, modelName: string, prompt: string) {
+  const result = await ai.models.generateContent({
+    model: modelName,
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      temperature: 0
+    }
+  });
+
+  if (!result.text) return undefined; // no output; let the caller try the next model
+
+  const parsed = JSON.parse(result.text);
+  const japanese = (parsed.japanese || "").trim();
+
+  if (!HAS_JAPANESE_SCRIPT.test(japanese)) {
+    wsLog(`[TurnAnalysis] ${modelName}: no Japanese phrase in this turn`);
+    return null; // successfully determined there's nothing to extract
+  }
+
+  const kana = (parsed.kana || "").trim();
+  const romaji = (parsed.romaji || "").trim();
+  const english = (parsed.english || "").trim();
+
+  wsLog(`[TurnAnalysis] ${modelName} -> "${japanese}" / "${romaji}"`);
+  return {
+    japanese,
+    // A "reading" that still contains Kanji is not a reading.
+    kana: kana && !HAS_KANJI.test(kana) ? kana : "",
+    // Romaji must be Latin script; the client re-validates it as well.
+    romaji: romaji && !HAS_JAPANESE_SCRIPT.test(romaji) ? romaji : "",
+    english: english && !HAS_JAPANESE_SCRIPT.test(english) ? english : ""
+  };
+}
+
 async function analyzeTurnTranscript(ai: GoogleGenAI, transcriptText: string) {
   if (!transcriptText || transcriptText.trim().length < 5) return null;
   if (!HAS_JAPANESE_SCRIPT.test(transcriptText) && !/[a-z]{3}/i.test(transcriptText)) return null;
@@ -505,51 +573,38 @@ Rules:
 - If the turn contains several Japanese phrases, pick the one the tutor is actively teaching.
 - "kana" and "romaji" must be complete readings of the WHOLE phrase in "japanese" — never partial, never English.`;
 
-  const chain = workingAnalysisModel
+  const preferred = workingAnalysisModel
     ? [workingAnalysisModel, ...TURN_ANALYSIS_MODELS.filter(m => m !== workingAnalysisModel)]
     : TURN_ANALYSIS_MODELS;
 
-  for (const modelName of chain) {
+  for (const modelName of preferred) {
     try {
-      const result = await ai.models.generateContent({
-        model: modelName,
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0
-        }
-      });
-
-      if (!result.text) continue;
+      const outcome = await tryAnalysisModel(ai, modelName, prompt);
+      if (outcome === undefined) continue;
       workingAnalysisModel = modelName;
-
-      const parsed = JSON.parse(result.text);
-      const japanese = (parsed.japanese || "").trim();
-
-      if (!HAS_JAPANESE_SCRIPT.test(japanese)) {
-        wsLog(`[TurnAnalysis] ${modelName}: no Japanese phrase in this turn`);
-        return null;
-      }
-
-      const kana = (parsed.kana || "").trim();
-      const romaji = (parsed.romaji || "").trim();
-      const english = (parsed.english || "").trim();
-
-      wsLog(`[TurnAnalysis] ${modelName} -> "${japanese}" / "${romaji}"`);
-      return {
-        japanese,
-        // A "reading" that still contains Kanji is not a reading.
-        kana: kana && !HAS_KANJI.test(kana) ? kana : "",
-        // Romaji must be Latin script; the client re-validates it as well.
-        romaji: romaji && !HAS_JAPANESE_SCRIPT.test(romaji) ? romaji : "",
-        english: english && !HAS_JAPANESE_SCRIPT.test(english) ? english : ""
-      };
+      return outcome;
     } catch (err: any) {
       wsLog(`[TurnAnalysis] Model ${modelName} failed: ${err.message || err}`);
     }
   }
 
-  wsLog(`[TurnAnalysis] All models failed. Set TURN_ANALYSIS_MODELS to a model your API key can reach.`);
+  // Every preferred model failed - most likely they've been deprecated.
+  // Find out what this key can actually reach right now instead of just
+  // giving up, and adopt whichever one works as the new preference.
+  const live = (await discoverAnalysisModels(ai)).filter(m => !preferred.includes(m));
+  for (const modelName of live.slice(0, 5)) {
+    try {
+      const outcome = await tryAnalysisModel(ai, modelName, prompt);
+      if (outcome === undefined) continue;
+      workingAnalysisModel = modelName;
+      wsLog(`[TurnAnalysis] Recovered using live-discovered model: ${modelName}`);
+      return outcome;
+    } catch (err: any) {
+      wsLog(`[TurnAnalysis] Discovered model ${modelName} failed: ${err.message || err}`);
+    }
+  }
+
+  wsLog(`[TurnAnalysis] All models failed, including live discovery. Check the API key's model access.`);
   return null;
 }
 
