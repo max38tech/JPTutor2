@@ -27,6 +27,36 @@ import { motion } from 'motion/react';
 import { getServerBaseUrl } from '../utils/api';
 import { speakJapanese } from '../utils/speak';
 
+const TUTOR_STYLES: {
+  id: 'efficient' | 'balanced' | 'interactive';
+  label: string;
+  description: string;
+  costLabel: string;
+  costClass: string;
+}[] = [
+  {
+    id: 'efficient',
+    label: 'Efficient',
+    description: 'Short replies, strict grading, moves fast. The default.',
+    costLabel: 'Lowest cost',
+    costClass: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400',
+  },
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    description: 'A bit more context and warmth alongside the same strict grading. Roughly 1.5-2x the reply length of Efficient.',
+    costLabel: 'Moderate cost',
+    costClass: 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400',
+  },
+  {
+    id: 'interactive',
+    label: 'Interactive',
+    description: 'Fuller explanations, example sentences, and back-and-forth conversation. Can be 3x+ the reply length of Efficient.',
+    costLabel: 'Highest cost',
+    costClass: 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400',
+  },
+];
+
 interface SettingsProps {
   settings: UserSettings;
   onUpdateSettings: (settings: UserSettings) => void;
@@ -325,6 +355,43 @@ export default function Settings({
               <option value="Fenrir">Fenrir (Hiro-sensei - Energetic Male)</option>
               <option value="Charon">Charon (Taro-sensei - Deep Male)</option>
             </select>
+          </div>
+
+          {/* Tutor Style Selection */}
+          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <span className="font-bold text-slate-700 dark:text-slate-300">Tutor Style</span>
+            <div className="space-y-2">
+              {TUTOR_STYLES.map((style) => {
+                const isActive = (settings.tutorStyle || 'efficient') === style.id;
+                return (
+                  <button
+                    key={style.id}
+                    type="button"
+                    onClick={() => onUpdateSettings({ ...settings, tutorStyle: style.id })}
+                    className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-500'
+                        : 'bg-slate-50 dark:bg-slate-950 border-slate-200/60 dark:border-slate-800/60 hover:border-slate-300 dark:hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`font-bold text-xs ${isActive ? 'text-indigo-600 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>
+                        {style.label}
+                      </span>
+                      <span className={`shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${style.costClass}`}>
+                        {style.costLabel}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                      {style.description}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500">
+              Grading stays just as strict in every style — only the tutor's reply length and chattiness change.
+            </p>
           </div>
 
           {/* Card & Log Speech Voice Selection */}
