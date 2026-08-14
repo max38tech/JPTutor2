@@ -516,6 +516,31 @@ async function discoverAnalysisModels(ai: GoogleGenAI): Promise<string[]> {
   }
 }
 
+// Shared between the Gemini and Qwen paths so both get identical validation -
+// a "reading" that's actually Kanji, or "romaji" that's actually Japanese
+// script, gets caught the same way regardless of which provider produced it.
+function parseAnalysisJson(rawText: string, sourceLabel: string) {
+  const parsed = JSON.parse(rawText);
+  const japanese = (parsed.japanese || "").trim();
+
+  if (!HAS_JAPANESE_SCRIPT.test(japanese)) {
+    wsLog(`[TurnAnalysis] ${sourceLabel}: no Japanese phrase in this turn`);
+    return null; // successfully determined there's nothing to extract
+  }
+
+  const kana = (parsed.kana || "").trim();
+  const romaji = (parsed.romaji || "").trim();
+  const english = (parsed.english || "").trim();
+
+  wsLog(`[TurnAnalysis] ${sourceLabel} -> "${japanese}" / "${romaji}"`);
+  return {
+    japanese,
+    kana: kana && !HAS_KANJI.test(kana) ? kana : "",
+    romaji: romaji && !HAS_JAPANESE_SCRIPT.test(romaji) ? romaji : "",
+    english: english && !HAS_JAPANESE_SCRIPT.test(english) ? english : ""
+  };
+}
+
 // NOTE: this deliberately does NOT use responseSchema. An earlier version
 // added one (with a boolean field) and it was never actually verified against
 // a live call - the only end-to-end confirmation this endpoint ever had was
@@ -533,28 +558,41 @@ async function tryAnalysisModel(ai: GoogleGenAI, modelName: string, prompt: stri
   });
 
   if (!result.text) return undefined; // no output; let the caller try the next model
+  return parseAnalysisJson(result.text, modelName);
+}
 
-  const parsed = JSON.parse(result.text);
-  const japanese = (parsed.japanese || "").trim();
+// Qwen via Alibaba Cloud DashScope's OpenAI-compatible endpoint. Being
+// trialed as the primary turn-analysis provider (see analyzeTurnTranscript)
+// for a quality comparison against Gemini - Gemini stays as the automatic
+// fallback below, so a Qwen outage or bad response never breaks the feature,
+// it just silently falls through same as any other failed model would.
+const QWEN_API_KEY = process.env.QWEN_API_KEY;
+const QWEN_BASE_URL = process.env.QWEN_BASE_URL || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+const QWEN_MODEL = process.env.QWEN_MODEL || "qwen3.7-flash";
 
-  if (!HAS_JAPANESE_SCRIPT.test(japanese)) {
-    wsLog(`[TurnAnalysis] ${modelName}: no Japanese phrase in this turn`);
-    return null; // successfully determined there's nothing to extract
+async function tryQwenAnalysis(prompt: string) {
+  const res = await fetch(`${QWEN_BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${QWEN_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: QWEN_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      temperature: 0,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`DashScope HTTP ${res.status}: ${await res.text()}`);
   }
 
-  const kana = (parsed.kana || "").trim();
-  const romaji = (parsed.romaji || "").trim();
-  const english = (parsed.english || "").trim();
-
-  wsLog(`[TurnAnalysis] ${modelName} -> "${japanese}" / "${romaji}"`);
-  return {
-    japanese,
-    // A "reading" that still contains Kanji is not a reading.
-    kana: kana && !HAS_KANJI.test(kana) ? kana : "",
-    // Romaji must be Latin script; the client re-validates it as well.
-    romaji: romaji && !HAS_JAPANESE_SCRIPT.test(romaji) ? romaji : "",
-    english: english && !HAS_JAPANESE_SCRIPT.test(english) ? english : ""
-  };
+  const data = await res.json();
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text) return undefined;
+  return parseAnalysisJson(text, QWEN_MODEL);
 }
 
 async function analyzeTurnTranscript(ai: GoogleGenAI, transcriptText: string) {
@@ -577,6 +615,19 @@ Rules:
 - If the turn contains no Japanese phrase at all (pure English chatter), return all four fields as empty strings: "".
 - If the turn contains several Japanese phrases, pick the one the tutor is actively teaching.
 - "kana" and "romaji" must be complete readings of the WHOLE phrase in "japanese" — never partial, never English.`;
+
+  // Trialing Qwen as the primary provider for a direct quality comparison
+  // against Gemini. Falls through to Gemini below on any failure, so this
+  // can't make the feature less reliable than it already is - only remove
+  // QWEN_API_KEY to go back to Gemini-only.
+  if (QWEN_API_KEY) {
+    try {
+      const outcome = await tryQwenAnalysis(prompt);
+      if (outcome !== undefined) return outcome;
+    } catch (err: any) {
+      wsLog(`[TurnAnalysis] Qwen (${QWEN_MODEL}) failed, falling back to Gemini: ${err.message || err}`);
+    }
+  }
 
   const preferred = workingAnalysisModel
     ? [workingAnalysisModel, ...TURN_ANALYSIS_MODELS.filter(m => m !== workingAnalysisModel)]
