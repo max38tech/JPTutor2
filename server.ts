@@ -7,7 +7,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type, LiveServerMessage, Modality, ActivityHandling } from "@google/genai";
+import { GoogleGenAI, LiveServerMessage, Modality, ActivityHandling } from "@google/genai";
 import { EdgeTTS } from "node-edge-tts";
 import dotenv from "dotenv";
 import { WebSocketServer } from "ws";
@@ -157,6 +157,53 @@ function checkReportCooldown(req: any, type: "bug" | "feature"): string | null {
   return null;
 }
 
+const MAX_SCREENSHOTS = 3;
+const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+
+// Uploads data-URL screenshots to Supabase Storage and returns their public
+// URLs, so they can be embedded as markdown images in the GitHub issue body.
+// Best-effort: screenshot upload failures are logged but never block the bug
+// report itself from going through, and if Supabase isn't configured at all
+// this just returns an empty list.
+async function uploadScreenshots(screenshots: string[]): Promise<string[]> {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !supabaseKey || !screenshots?.length) return [];
+
+  const urls: string[] = [];
+  for (const [i, dataUrl] of screenshots.slice(0, MAX_SCREENSHOTS).entries()) {
+    try {
+      const match = /^data:(image\/\w+);base64,(.+)$/.exec(dataUrl);
+      if (!match) continue;
+      const [, mimeType, base64] = match;
+      const buffer = Buffer.from(base64, "base64");
+      if (buffer.length > MAX_SCREENSHOT_BYTES) continue;
+
+      const ext = mimeType.split("/")[1] || "jpg";
+      const path = `bug-reports/${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+      const upRes = await fetch(`${supabaseUrl}/storage/v1/object/bug-report-screenshots/${path}`, {
+        method: "POST",
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          "Content-Type": mimeType,
+        },
+        body: buffer,
+      });
+
+      if (upRes.ok) {
+        urls.push(`${supabaseUrl}/storage/v1/object/public/bug-report-screenshots/${path}`);
+      } else {
+        wsLog(`[Report] Screenshot upload failed: ${upRes.status} ${await upRes.text()}`);
+      }
+    } catch (err: any) {
+      wsLog(`[Report] Screenshot upload error: ${err.message || err}`);
+    }
+  }
+  return urls;
+}
+
 // Bugs become GitHub issues so they can be triaged and fixed quickly.
 // Requires GITHUB_ISSUE_TOKEN: a fine-grained PAT scoped to Issues:write on
 // this repo only. GITHUB_REPO defaults to this project's own repo.
@@ -170,7 +217,7 @@ app.post("/api/report/bug", async (req, res) => {
       return res.status(501).json({ error: "Bug reporting is not configured on the server yet." });
     }
 
-    const { description, clientLogs, serverLogs, deviceInfo } = req.body || {};
+    const { description, clientLogs, serverLogs, deviceInfo, screenshots } = req.body || {};
     const cleanDescription = String(description || "").trim().slice(0, 3000);
     if (!cleanDescription) {
       return res.status(400).json({ error: "A description of the bug is required." });
@@ -183,8 +230,14 @@ app.post("/api/report/bug", async (req, res) => {
       return str.length > max ? `... (truncated) ...\n${str.slice(-max)}` : str;
     };
 
+    const screenshotUrls = await uploadScreenshots(Array.isArray(screenshots) ? screenshots : []);
+    const screenshotsSection = screenshotUrls.length
+      ? ["", "---", ...screenshotUrls.map((url, i) => `![screenshot ${i + 1}](${url})`)]
+      : [];
+
     const body = [
       cleanDescription,
+      ...screenshotsSection,
       "",
       "---",
       `**Device:** ${truncate(deviceInfo, 300)}`,
@@ -425,33 +478,12 @@ let workingAnalysisModel: string | null = null;
 const HAS_JAPANESE_SCRIPT = /[぀-ヿ㐀-䶿一-鿿]/;
 const HAS_KANJI = /[㐀-䶿一-鿿]/;
 
-const TURN_ANALYSIS_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    hasJapanesePhrase: {
-      type: Type.BOOLEAN,
-      description: "True only if the tutor actually taught or spoke a Japanese phrase in this turn."
-    },
-    japanese: {
-      type: Type.STRING,
-      description: "The target Japanese phrase in Kanji/Kana script only, e.g. お支払いはどうされますか？. No English, no Romaji. Empty string if there is none."
-    },
-    kana: {
-      type: Type.STRING,
-      description: "The full reading of the phrase in Hiragana only (no Kanji), with a single space between each word and particle, e.g. おしはらい は どう されます か."
-    },
-    romaji: {
-      type: Type.STRING,
-      description: "The complete Hepburn Romaji reading of the ENTIRE phrase, spaced by word, e.g. Oshiharai wa dou saremasu ka?. Never truncate it and never put English here."
-    },
-    english: {
-      type: Type.STRING,
-      description: "Natural English translation of the Japanese phrase only, e.g. How will you be paying?. Not a summary of the whole turn."
-    }
-  },
-  required: ["hasJapanesePhrase", "japanese", "kana", "romaji", "english"]
-};
-
+// NOTE: this deliberately does NOT use responseSchema. An earlier version
+// added one (with a boolean field) and it was never actually verified against
+// a live call - the only end-to-end confirmation this endpoint ever had was
+// from the older, schema-less version. responseMimeType + a precisely
+// specified prompt is the proven-working pattern; don't reintroduce a schema
+// here without testing it against a real API key first.
 async function analyzeTurnTranscript(ai: GoogleGenAI, transcriptText: string) {
   if (!transcriptText || transcriptText.trim().length < 5) return null;
   if (!HAS_JAPANESE_SCRIPT.test(transcriptText) && !/[a-z]{3}/i.test(transcriptText)) return null;
@@ -460,8 +492,16 @@ async function analyzeTurnTranscript(ai: GoogleGenAI, transcriptText: string) {
 
 Spoken tutor turn: "${transcriptText}"
 
+Return ONLY a JSON object with exactly these four string fields, nothing else:
+{
+  "japanese": "the target phrase in Kanji/Kana script only, e.g. お支払いはどうされますか？ - no English, no Romaji",
+  "kana": "the full reading of the phrase in Hiragana only (no Kanji), one space between each word and particle, e.g. おしはらい は どう されます か",
+  "romaji": "the complete Hepburn Romaji reading of the ENTIRE phrase, spaced by word, e.g. Oshiharai wa dou saremasu ka? - never truncate, never put English here",
+  "english": "natural English translation of the Japanese phrase only, e.g. How will you be paying? - not a summary of the whole turn"
+}
+
 Rules:
-- If the turn contains no Japanese phrase at all (pure English chatter), set hasJapanesePhrase to false and leave the other fields empty.
+- If the turn contains no Japanese phrase at all (pure English chatter), return all four fields as empty strings: "".
 - If the turn contains several Japanese phrases, pick the one the tutor is actively teaching.
 - "kana" and "romaji" must be complete readings of the WHOLE phrase in "japanese" — never partial, never English.`;
 
@@ -476,7 +516,6 @@ Rules:
         contents: prompt,
         config: {
           responseMimeType: "application/json",
-          responseSchema: TURN_ANALYSIS_SCHEMA,
           temperature: 0
         }
       });
@@ -487,7 +526,7 @@ Rules:
       const parsed = JSON.parse(result.text);
       const japanese = (parsed.japanese || "").trim();
 
-      if (parsed.hasJapanesePhrase === false || !HAS_JAPANESE_SCRIPT.test(japanese)) {
+      if (!HAS_JAPANESE_SCRIPT.test(japanese)) {
         wsLog(`[TurnAnalysis] ${modelName}: no Japanese phrase in this turn`);
         return null;
       }
@@ -659,8 +698,11 @@ GRADING - the student has explicitly asked you to be strict.
 - "Good." is only for an attempt a native speaker would understand effortlessly. Never say perfect, excellent or great unless it truly was. Praising a flawed attempt fails the student and teaches them wrong Japanese.
 - After "Close." or "Not yet.", name the single biggest error in a few words - the exact mora, vowel length, particle or word order - then say the phrase correctly once and have them try again.
 - Do not move on to a new phrase until the student produces the current one correctly.`,
-      inputAudioTranscription: {},
-      outputAudioTranscription: {},
+      // Without a language hint the ASR is free to guess any language for
+      // ambiguous audio, and has been observed transcribing English speech as
+      // Korean. The lesson is strictly English/Japanese, so constrain it.
+      inputAudioTranscription: { languageHints: { languageCodes: ["en-US", "ja-JP"] } },
+      outputAudioTranscription: { languageHints: { languageCodes: ["en-US", "ja-JP"] } },
       realtimeInputConfig: {
         activityHandling: ActivityHandling.NO_INTERRUPTION
       }

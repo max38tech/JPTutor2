@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { X, Bug, Lightbulb, Send, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, Bug, Lightbulb, Send, CheckCircle2, AlertCircle, Camera } from 'lucide-react';
 import { logger } from '../utils/logger';
 import { getServerBaseUrl } from '../utils/api';
 
@@ -16,18 +16,54 @@ interface ReportModalProps {
 
 type SubmitState = { status: 'idle' | 'submitting' | 'success' | 'error'; message?: string; issueUrl?: string };
 
+const MAX_SCREENSHOTS = 3;
+
 const deviceInfo = () =>
   typeof navigator !== 'undefined' ? `${navigator.userAgent} | ${navigator.platform}` : 'unknown';
+
+// Downscales and re-encodes as JPEG so a full-resolution phone screenshot
+// doesn't balloon the request - a few hundred KB is plenty to read a bug report.
+function resizeImageToDataUrl(file: File, maxDim = 1280, quality = 0.75): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read the selected file.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Could not read the selected image.'));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Canvas is not supported on this device.'));
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function ReportModal({ isOpen, onClose, initialMode = 'bug' }: ReportModalProps) {
   const [mode, setMode] = useState<'bug' | 'feature'>(initialMode);
   const [description, setDescription] = useState('');
+  const [screenshots, setScreenshots] = useState<string[]>([]);
+  const [screenshotError, setScreenshotError] = useState<string | null>(null);
   const [submit, setSubmit] = useState<SubmitState>({ status: 'idle' });
 
   useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
       setDescription('');
+      setScreenshots([]);
+      setScreenshotError(null);
       setSubmit({ status: 'idle' });
     }
   }, [isOpen, initialMode]);
@@ -37,6 +73,29 @@ export default function ReportModal({ isOpen, onClose, initialMode = 'bug' }: Re
   const handleClose = () => {
     if (submit.status === 'submitting') return;
     onClose();
+  };
+
+  const handleScreenshotSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files: File[] = e.target.files ? Array.from(e.target.files) : [];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!files.length) return;
+
+    setScreenshotError(null);
+    const room = MAX_SCREENSHOTS - screenshots.length;
+    if (files.length > room) {
+      setScreenshotError(`Only ${MAX_SCREENSHOTS} screenshots per report — added the first ${Math.max(room, 0)}.`);
+    }
+
+    try {
+      const resized = await Promise.all(files.slice(0, room).map(f => resizeImageToDataUrl(f)));
+      setScreenshots(prev => [...prev, ...resized]);
+    } catch (err: any) {
+      setScreenshotError(err.message || 'Could not process one of the selected images.');
+    }
+  };
+
+  const removeScreenshot = (index: number) => {
+    setScreenshots(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -65,7 +124,7 @@ export default function ReportModal({ isOpen, onClose, initialMode = 'bug' }: Re
         const res = await fetch(`${getServerBaseUrl()}/api/report/bug`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ description: trimmed, clientLogs, serverLogs, deviceInfo: deviceInfo() }),
+          body: JSON.stringify({ description: trimmed, clientLogs, serverLogs, deviceInfo: deviceInfo(), screenshots }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to submit bug report.');
@@ -173,6 +232,43 @@ export default function ReportModal({ isOpen, onClose, initialMode = 'bug' }: Re
                   : "This goes straight to the developer for review — it won't be posted publicly."}
               </p>
             </div>
+
+            {mode === 'bug' && (
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-600 dark:text-slate-400 block">
+                  Screenshots (optional)
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {screenshots.map((src, i) => (
+                    <div key={i} className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800">
+                      <img src={src} alt={`Screenshot ${i + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => removeScreenshot(i)}
+                        className="absolute top-0 right-0 bg-slate-950/70 hover:bg-rose-600 text-white p-0.5 rounded-bl-lg cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {screenshots.length < MAX_SCREENSHOTS && (
+                    <label className="w-14 h-14 rounded-lg border-2 border-dashed border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 hover:text-indigo-500 hover:border-indigo-300 cursor-pointer transition-colors">
+                      <Camera className="w-5 h-5" />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleScreenshotSelect}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+                {screenshotError && (
+                  <p className="text-[10px] text-rose-500">{screenshotError}</p>
+                )}
+              </div>
+            )}
 
             {submit.status === 'error' && (
               <div className="flex items-start gap-2 p-2.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/30 text-rose-600 dark:text-rose-400 rounded-xl">

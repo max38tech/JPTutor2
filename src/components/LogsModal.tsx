@@ -135,7 +135,7 @@ export default function LogsModal({ isOpen, onClose }: LogsModalProps) {
       `Hello Support,\n\nI encountered an issue using the JP Tutor App.\n\n${compiledLogs}\n\n---\nDevice/App Info:\nUser Agent: ${navigator.userAgent}\nPlatform: ${navigator.platform}`
     );
     
-    window.location.href = `mailto:shawn.shiobara@gmail.com?subject=${subject}&body=${body}`;
+    window.location.href = `mailto:support@iteratori.io?subject=${subject}&body=${body}`;
   };
 
   const handleClearLogs = async () => {

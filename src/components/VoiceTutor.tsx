@@ -83,6 +83,12 @@ export default function VoiceTutor({
   const activeSessionIdRef = useRef(activeSessionId);
   const playingSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const tutorTranscriptRef = useRef<string>('');
+  // WebSocket.close() is async - onclose fires later, sometimes after the
+  // user has already navigated back to the topic list. Without this flag,
+  // that stale close event's error banner renders on the home screen instead
+  // of being suppressed, since close codes alone aren't a reliable signal of
+  // "the user did this on purpose" across browsers/networks.
+  const intentionalCloseRef = useRef(false);
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -473,7 +479,15 @@ export default function VoiceTutor({
 
       ws.onclose = (e: CloseEvent) => {
         console.log("WebSocket Closed. Code:", e.code, "Reason:", e.reason);
-        
+
+        if (intentionalCloseRef.current) {
+          intentionalCloseRef.current = false;
+          logger.addLog('info', `WebSocket connection closed (user-initiated). Code: ${e.code}`);
+          setErrorMessage(null);
+          cleanupLiveSession();
+          return;
+        }
+
         let troubleshootHint = "";
         if (e.code === 1006) {
           const isAIStudioDomain = wsUrl.includes("ais-dev-") || wsUrl.includes("ais-pre-");
@@ -535,6 +549,7 @@ export default function VoiceTutor({
   };
 
   const endTopic = () => {
+    intentionalCloseRef.current = true;
     cleanupLiveSession();
     onSetActiveSessionId(null);
   };

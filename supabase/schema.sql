@@ -18,3 +18,12 @@ create table if not exists feature_requests (
 );
 
 alter table feature_requests enable row level security;
+
+-- Storage bucket for screenshots attached to in-app bug reports. Marked
+-- public so the URLs the server embeds in GitHub issues (as markdown images)
+-- render for anyone viewing the issue - GitHub itself has no credentials to
+-- fetch a private bucket. Uploads still only ever happen server-side with the
+-- service_role key, so nothing here lets a client write directly.
+insert into storage.buckets (id, name, public)
+values ('bug-report-screenshots', 'bug-report-screenshots', true)
+on conflict (id) do nothing;
