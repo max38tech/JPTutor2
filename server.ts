@@ -471,6 +471,7 @@ ${persona.name === 'Taro-sensei' ? '- Use a deep, low-pitched male baritone voic
 SCOPE
 - Teach only Japanese language and the active lesson scenario. Decline anything else in one short sentence, then continue the lesson.
 - The student speaks only English and Japanese. Interpret all incoming audio as one of those two languages.
+- Exception: the exact message "[STUDENT_INTERRUPT]" is a button press, not something the student said. It is never off-topic. On seeing it, stop mid-thought, reply with only "Go ahead." and wait silently for the student to speak.
 
 BE BRIEF. Every extra word costs the student time and money.
 - Two short sentences per turn, maximum. One is usually enough.
@@ -605,7 +606,7 @@ GRADING - the student has explicitly asked you to be strict.
             session.sendClientContent({
               turns: [{
                 role: "user",
-                parts: [{ text: "Excuse me." }]
+                parts: [{ text: "[STUDENT_INTERRUPT]" }]
               }],
               turnComplete: true
             });

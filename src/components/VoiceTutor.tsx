@@ -766,6 +766,9 @@ export default function VoiceTutor({
                   
                   <button
                     onClick={() => {
+                      stopAllAudio();
+                      setCurrentTranscript('');
+                      tutorTranscriptRef.current = '';
                       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                         wsRef.current.send(JSON.stringify({ interrupt: true }));
                       }
