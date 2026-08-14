@@ -138,6 +138,147 @@ app.post("/api/debug/logs/clear", (req, res) => {
   }
 });
 
+// In-app bug/feature reporting. Both endpoints are unauthenticated like the
+// rest of this API, so each gets a small per-IP cooldown against accidental
+// double-submits or trivial spam - not a substitute for real abuse defenses,
+// but proportionate to a personal-scale app with no user accounts.
+const lastReportByIp = new Map<string, number>();
+const REPORT_COOLDOWN_MS = 20_000;
+
+function checkReportCooldown(req: any, type: "bug" | "feature"): string | null {
+  const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+  const key = `${ip}:${type}`;
+  const last = lastReportByIp.get(key);
+  const now = Date.now();
+  if (last && now - last < REPORT_COOLDOWN_MS) {
+    return `Please wait a moment before submitting another report.`;
+  }
+  lastReportByIp.set(key, now);
+  return null;
+}
+
+// Bugs become GitHub issues so they can be triaged and fixed quickly.
+// Requires GITHUB_ISSUE_TOKEN: a fine-grained PAT scoped to Issues:write on
+// this repo only. GITHUB_REPO defaults to this project's own repo.
+app.post("/api/report/bug", async (req, res) => {
+  try {
+    const cooldownError = checkReportCooldown(req, "bug");
+    if (cooldownError) return res.status(429).json({ error: cooldownError });
+
+    const token = process.env.GITHUB_ISSUE_TOKEN;
+    if (!token) {
+      return res.status(501).json({ error: "Bug reporting is not configured on the server yet." });
+    }
+
+    const { description, clientLogs, serverLogs, deviceInfo } = req.body || {};
+    const cleanDescription = String(description || "").trim().slice(0, 3000);
+    if (!cleanDescription) {
+      return res.status(400).json({ error: "A description of the bug is required." });
+    }
+
+    const repo = process.env.GITHUB_REPO || "max38tech/JPTutor";
+    const truncate = (s: any, max: number) => {
+      const str = String(s || "").trim();
+      if (!str) return "(none captured)";
+      return str.length > max ? `... (truncated) ...\n${str.slice(-max)}` : str;
+    };
+
+    const body = [
+      cleanDescription,
+      "",
+      "---",
+      `**Device:** ${truncate(deviceInfo, 300)}`,
+      "",
+      "<details><summary>Client logs</summary>\n\n```",
+      truncate(clientLogs, 4000),
+      "```\n</details>",
+      "",
+      "<details><summary>Server logs</summary>\n\n```",
+      truncate(serverLogs, 4000),
+      "```\n</details>",
+      "",
+      "_Reported from the app's in-app bug report form._",
+    ].join("\n");
+
+    const title = cleanDescription.split("\n")[0].slice(0, 80) || "Bug report from app";
+
+    const ghRes = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      body: JSON.stringify({ title, body, labels: ["bug", "in-app-report"] }),
+    });
+
+    if (!ghRes.ok) {
+      const errText = await ghRes.text();
+      wsLog(`[Report] GitHub issue creation failed: ${ghRes.status} ${errText}`);
+      return res.status(502).json({ error: "Failed to file the bug report. Please try again later." });
+    }
+
+    const issue = await ghRes.json();
+    wsLog(`[Report] Bug report filed as issue #${issue.number}`);
+    return res.json({ success: true, issueNumber: issue.number, issueUrl: issue.html_url });
+  } catch (error: any) {
+    wsLog(`[Report] Bug report error: ${error.message || error}`);
+    return res.status(500).json({ error: "Failed to file the bug report." });
+  }
+});
+
+// Feature requests are logged for manual review rather than turned into
+// issues automatically - they need a product judgment call, not a fix.
+// Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (server-side only,
+// never sent to the client). The table has RLS enabled with no policies, so
+// only the service-role key can read or write it.
+app.post("/api/report/feature", async (req, res) => {
+  try {
+    const cooldownError = checkReportCooldown(req, "feature");
+    if (cooldownError) return res.status(429).json({ error: cooldownError });
+
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(501).json({ error: "Feature requests are not configured on the server yet." });
+    }
+
+    const { description, deviceInfo, appVersion } = req.body || {};
+    const cleanDescription = String(description || "").trim().slice(0, 2000);
+    if (!cleanDescription) {
+      return res.status(400).json({ error: "A description of the feature is required." });
+    }
+
+    const sbRes = await fetch(`${supabaseUrl}/rest/v1/feature_requests`, {
+      method: "POST",
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({
+        description: cleanDescription,
+        device_info: String(deviceInfo || "").slice(0, 300),
+        app_version: String(appVersion || "").slice(0, 50),
+      }),
+    });
+
+    if (!sbRes.ok) {
+      const errText = await sbRes.text();
+      wsLog(`[Report] Supabase insert failed: ${sbRes.status} ${errText}`);
+      return res.status(502).json({ error: "Failed to log the feature request. Please try again later." });
+    }
+
+    wsLog(`[Report] Feature request logged.`);
+    return res.json({ success: true });
+  } catch (error: any) {
+    wsLog(`[Report] Feature request error: ${error.message || error}`);
+    return res.status(500).json({ error: "Failed to log the feature request." });
+  }
+});
+
 function createWavHeader(pcmData: Buffer, sampleRate = 24000, numChannels = 1, bitsPerSample = 16): Buffer {
   const header = Buffer.alloc(44);
   const dataSize = pcmData.length;

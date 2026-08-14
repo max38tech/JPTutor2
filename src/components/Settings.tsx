@@ -21,7 +21,9 @@ import {
   Moon,
   Monitor,
   AlertCircle,
-  Globe
+  Globe,
+  Bug,
+  Lightbulb
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getServerBaseUrl } from '../utils/api';
@@ -63,6 +65,7 @@ interface SettingsProps {
   onSyncTrigger: (action: 'upload' | 'download', code: string) => Promise<SyncData | null>;
   onClearAllData: () => void;
   onOpenLogs: () => void;
+  onOpenReport: (mode: 'bug' | 'feature') => void;
 }
 
 export default function Settings({
@@ -71,6 +74,7 @@ export default function Settings({
   onSyncTrigger,
   onClearAllData,
   onOpenLogs,
+  onOpenReport,
 }: SettingsProps) {
   const [showKey, setShowKey] = useState(false);
   const [syncCode, setSyncCode] = useState('');
@@ -611,6 +615,35 @@ export default function Settings({
             <AlertCircle className="w-4 h-4" />
             View Diagnostics Logs
           </button>
+        </div>
+
+        {/* 4.6 Feedback: bug reports & feature requests */}
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm space-y-3">
+          <div className="flex items-center gap-2">
+            <Lightbulb className="w-4.5 h-4.5 text-indigo-500 dark:text-indigo-300" />
+            <h3 className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+              Feedback
+            </h3>
+          </div>
+          <p className="text-slate-500 dark:text-slate-400 leading-relaxed text-[11px]">
+            Found something broken, or have an idea for the app? Let us know directly.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => onOpenReport('bug')}
+              className="py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+            >
+              <Bug className="w-4 h-4" />
+              Report Bug
+            </button>
+            <button
+              onClick={() => onOpenReport('feature')}
+              className="py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+            >
+              <Lightbulb className="w-4 h-4" />
+              Feature Idea
+            </button>
+          </div>
         </div>
 
         {/* 5. Clear application data button */}

@@ -12,6 +12,7 @@ import Flashcards from './components/Flashcards';
 import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
 import LogsModal from './components/LogsModal';
+import ReportModal from './components/ReportModal';
 import { getServerBaseUrl } from './utils/api';
 
 import { 
@@ -55,6 +56,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'practice' | 'topics' | 'cards' | 'dashboard' | 'settings'>('practice');
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
+  const [reportModalMode, setReportModalMode] = useState<'bug' | 'feature' | null>(null);
   const [isLiveConnected, setIsLiveConnected] = useState(false);
 
   useEffect(() => {
@@ -303,6 +305,7 @@ export default function App() {
             onSyncTrigger={handleSyncTrigger}
             onClearAllData={handleClearAllData}
             onOpenLogs={() => setIsLogsOpen(true)}
+            onOpenReport={(mode) => setReportModalMode(mode)}
           />
         )}
       </div>
@@ -389,6 +392,11 @@ export default function App() {
 
       {/* System Logs Diagnostic Modal overlay */}
       <LogsModal isOpen={isLogsOpen} onClose={() => setIsLogsOpen(false)} />
+      <ReportModal
+        isOpen={reportModalMode !== null}
+        initialMode={reportModalMode || 'bug'}
+        onClose={() => setReportModalMode(null)}
+      />
 
     </MobileFrame>
   );
