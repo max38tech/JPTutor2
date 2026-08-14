@@ -146,9 +146,29 @@ export function extractRomaji(text: string, japanese: string, analysis?: TurnAna
   return '';
 }
 
+/**
+ * A translation of a single teaching phrase should read as one short clause.
+ * Multiple sentences, or an implausible word count, means the analyzer
+ * echoed a chunk of the whole turn (e.g. the session-opening preamble)
+ * instead of translating just the target phrase - issue #12.
+ */
+function looksLikePhraseTranslation(candidate: string): boolean {
+  const sentenceEnders = candidate.match(/[.!?]+(?=\s|["'”]|$)/g) || [];
+  if (sentenceEnders.length > 1) return false;
+  return candidate.split(/\s+/).filter(Boolean).length <= 20;
+}
+
 export function extractEnglish(text: string, japanese: string, romaji: string, analysis?: TurnAnalysis | null): string {
-  if (analysis?.english?.trim() && !hasJapaneseScript(analysis.english)) {
-    return stripMarkup(analysis.english);
+  const analysisEnglish = analysis?.english?.trim();
+  if (analysisEnglish) {
+    if (!hasJapaneseScript(analysisEnglish) && looksLikePhraseTranslation(analysisEnglish)) {
+      return stripMarkup(analysisEnglish);
+    }
+    // The analyzer gave us something, but it broke the single-phrase-translation
+    // contract - showing it would mislead the learner, and the raw-transcript
+    // fallback below would just surface the same summarized prose. Prefer
+    // nothing, same reasoning as the Romaji validation above.
+    return '';
   }
 
   const clean = stripMarkup(text);

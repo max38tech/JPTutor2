@@ -69,6 +69,27 @@ const r2d = parseTutorTurn(turn2, {
 });
 check('truncated analysis romaji rejected', r2d.romaji, 'fukuro wa goriyou desu ka');
 
+// Analysis model echoes the turn's opening preamble into "english" instead of
+// translating the target phrase -> rejected rather than shown (issue #12).
+const firstTurn = `Great, let's learn to converse about the topic: Dating. I'm Taro-sensei, your Japanese tutor! デートに行きませんか？`;
+const r2e = parseTutorTurn(firstTurn, {
+  japanese: 'デートに行きませんか？',
+  kana: 'デート に いき ませ ん か',
+  romaji: 'Deeto ni ikimasen ka?',
+  english: "Great, let's learn to converse about the topic: Dating. I'm Taro-sensei, your Japanese tutor!",
+});
+check('multi-sentence analysis english rejected', r2e.english, '');
+check('analysis romaji still accepted despite bad english', r2e.romaji, 'Deeto ni ikimasen ka?');
+
+// A genuine, slightly longer single-clause translation is still accepted.
+const r2f = parseTutorTurn(turn2, {
+  japanese: '袋はご利用ですか？',
+  kana: 'ふくろ は ごりよう です か',
+  romaji: 'Fukuro wa goriyou desu ka?',
+  english: 'Would you like a bag for your items today?',
+});
+check('longer single-clause analysis english accepted', r2f.english, 'Would you like a bag for your items today?');
+
 console.log('\n=== 3. Romaji spoken in parentheses right after the phrase ===');
 const turn3 = `You can say: アメリカから来ました (Amerika kara kimashita). That means: I came from America.`;
 const r3 = parseTutorTurn(turn3);
