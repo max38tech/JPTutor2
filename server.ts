@@ -483,6 +483,33 @@ const TURN_ANALYSIS_MODELS = (process.env.TURN_ANALYSIS_MODELS || "gemini-2.5-fl
   .map(m => m.trim())
   .filter(Boolean);
 
+// Live tutor model chain, tried in order. Override with LIVE_MODELS="a,b".
+// Like TURN_ANALYSIS_MODELS this WILL go stale as Google retires preview
+// models, so it is env-configurable rather than hardcoded in the handler.
+const LIVE_MODELS = (process.env.LIVE_MODELS || "gemini-3.1-flash-live-preview,gemini-2.0-flash-exp")
+  .split(",")
+  .map(m => m.trim())
+  .filter(Boolean);
+
+// Dedicated transcription model chain. The tutor model's own input
+// transcription is unreliable (English has been transcribed as Korean, etc.),
+// so a second Live session on a dedicated transcription model produces the
+// authoritative user transcript. Override with TRANSCRIBE_MODELS="a,b".
+// The -preview suffix is the Agent Platform model id; the plain id is the
+// Gemini API (AI Studio) equivalent, kept as a fallback for API-key setups.
+const TRANSCRIBE_MODELS = (process.env.TRANSCRIBE_MODELS || "gemini-3.5-transcribe-live-preview,gemini-3.5-transcribe-live")
+  .split(",")
+  .map(m => m.trim())
+  .filter(Boolean);
+
+// Language hints for the transcription model. The student speaks English and
+// attempts Japanese; constraining to these two stops the model drifting into
+// unrelated languages (the old English-as-Korean failure mode).
+const TRANSCRIBE_LANGUAGES = (process.env.TRANSCRIBE_LANGUAGES || "en-US,ja-JP")
+  .split(",")
+  .map(m => m.trim())
+  .filter(Boolean);
+
 let workingAnalysisModel: string | null = null;
 let discoveredAnalysisModels: string[] | null = null;
 
@@ -808,7 +835,7 @@ async function startServer() {
 
     let session: any;
     let connectedModel = "";
-    const liveModelsChain = ["gemini-3.1-flash-live-preview", "gemini-2.0-flash-exp"];
+    const liveModelsChain = LIVE_MODELS;
     let lastError: any = null;
     let currentTurnTutorText = "";
     let turnCounter = 0;
@@ -945,13 +972,131 @@ GRADING - the student has explicitly asked you to be strict.
         throw lastError || new Error("Failed to connect to any Gemini Live model");
       }
 
+      // --- Dedicated transcription session (gemini-3.5-transcribe-live-preview) ---
+      // The tutor model's own input transcription is unreliable (English has
+      // been transcribed as Korean, etc.). Run a second Live session on the
+      // dedicated transcription model and use ITS output as the authoritative
+      // user transcript, feeding the accurate text to the tutor so it responds
+      // to what was actually said. Falls back to the tutor's own transcription
+      // if no transcription model is available.
+      let transcribeSession: any = null;
+      let transcribeModel = "";
+      let transcribeReady = false;
+      let transcriptionActive = false;
+      const pendingAudio: string[] = [];
+
+      const transcribeConfig = {
+        responseModalities: [Modality.TEXT],
+        inputAudioTranscription: {
+          languageCodes: TRANSCRIBE_LANGUAGES,
+        },
+      };
+
+      const transcribeCallbacks = {
+        onmessage: (message: LiveServerMessage) => {
+          // The Live API cancels the session if audio is streamed before
+          // setup_complete arrives, so buffer audio until then.
+          if (message.setupComplete) {
+            transcribeReady = true;
+            wsLog(`[Transcribe] Session ready (${transcribeModel}); flushing ${pendingAudio.length} buffered audio chunks.`);
+            for (const chunk of pendingAudio) {
+              transcribeSession?.sendRealtimeInput({
+                audio: { mimeType: "audio/pcm;rate=16000", data: chunk },
+              });
+            }
+            pendingAudio.length = 0;
+            return;
+          }
+          const finalText = message.serverContent?.inputTranscription?.text;
+          const interimText = message.serverContent?.interimInputTranscription?.text;
+          if (interimText) {
+            clientWs.send(JSON.stringify({ userTranscript: interimText, isInterim: true }));
+          }
+          if (finalText) {
+            wsLog(`[Transcribe] Final: ${finalText}`);
+            clientWs.send(JSON.stringify({ userTranscript: finalText, isInterim: false }));
+            // Feed the accurate transcript to the tutor as a text turn so it
+            // responds to what was actually said, not its own transcription.
+            try {
+              session.sendClientContent({
+                turns: [{ role: "user", parts: [{ text: finalText }] }],
+                turnComplete: true,
+              });
+            } catch (err: any) {
+              wsLog(`[Transcribe] Failed to forward transcript to tutor: ${err?.message || err}`);
+            }
+          }
+        },
+      };
+
+      // A brand-new preview model can hang instead of failing fast, which
+      // would block the client message handler below. Race the connect against
+      // a timeout so a stuck transcription model degrades to the fallback
+      // rather than stalling the whole session.
+      const connectTranscribe = (modelCandidate: string) =>
+        Promise.race([
+          ai.live.connect({
+            model: modelCandidate,
+            config: transcribeConfig,
+            callbacks: transcribeCallbacks,
+          }),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`Timed out after 10s`)), 10000)
+          ),
+        ]);
+
+      for (const modelCandidate of TRANSCRIBE_MODELS) {
+        try {
+          wsLog(`[Transcribe] Trying to connect to transcription model: ${modelCandidate}...`);
+          transcribeSession = await connectTranscribe(modelCandidate);
+          transcribeModel = modelCandidate;
+          transcriptionActive = true;
+          wsLog(`[Transcribe] Connected to transcription model: ${modelCandidate}`);
+          break;
+        } catch (err: any) {
+          wsLog(`[Transcribe] Failed to connect using ${modelCandidate}: ${err?.message || err}`);
+        }
+      }
+      if (!transcriptionActive) {
+        wsLog(`[Transcribe] No transcription model available; falling back to the tutor's own transcription.`);
+      } else {
+        // If the session connects but never reports setup_complete (a silent
+        // failure), don't let audio pile up in the buffer forever - fall back
+        // to the tutor's own transcription after a grace period.
+        setTimeout(() => {
+          if (!transcribeReady) {
+            wsLog(`[Transcribe] Session never became ready; falling back to the tutor's own transcription.`);
+            transcriptionActive = false;
+            for (const chunk of pendingAudio) {
+              try {
+                session.sendRealtimeInput({ audio: { mimeType: "audio/pcm;rate=16000", data: chunk } });
+              } catch (err: any) { /* best-effort flush */ }
+            }
+            pendingAudio.length = 0;
+          }
+        }, 10000);
+      }
+
       clientWs.on("message", (data) => {
         try {
           const { audio, interrupt, text } = JSON.parse(data.toString());
           if (audio) {
-            session.sendRealtimeInput({
-              audio: { mimeType: "audio/pcm;rate=16000", data: audio },
-            });
+            if (transcriptionActive && transcribeSession) {
+              // Route audio to the dedicated transcription model. Buffer until
+              // its session is ready (setup_complete) to avoid cancellation.
+              if (transcribeReady) {
+                transcribeSession.sendRealtimeInput({
+                  audio: { mimeType: "audio/pcm;rate=16000", data: audio },
+                });
+              } else {
+                pendingAudio.push(audio);
+              }
+            } else {
+              // Fallback: let the tutor model transcribe the audio itself.
+              session.sendRealtimeInput({
+                audio: { mimeType: "audio/pcm;rate=16000", data: audio },
+              });
+            }
           }
           if (text) {
             wsLog(`[Client] Sending text content: ${text}`);
@@ -984,6 +1129,13 @@ GRADING - the student has explicitly asked you to be strict.
           session.close();
         } catch (err: any) {
           wsLog(`[Connection] Error closing Gemini session: ${err.message}`);
+        }
+        if (transcribeSession) {
+          try {
+            transcribeSession.close();
+          } catch (err: any) {
+            wsLog(`[Connection] Error closing transcription session: ${err.message}`);
+          }
         }
       });
     } catch (e: any) {
